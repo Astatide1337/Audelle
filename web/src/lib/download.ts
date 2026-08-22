@@ -4,8 +4,8 @@
  * Each track is fetched one at a time through the server's validated
  * `/api/audio/{videoId}` proxy — callers only ever pass video IDs that came
  * from a playlist Audelle generated, never URLs. Files are packed client-side
- * into a ZIP with the STORE method: best-available audio is already
- * compressed, so recompressing would only waste time.
+ * into a ZIP with the STORE method. The server transcodes every response to
+ * high-quality MP3, so recompressing it would only waste time.
  */
 
 import type { Track } from './types'
@@ -33,10 +33,10 @@ export interface DownloadCallbacks {
 }
 
 function extensionFor(contentType: string): string {
-  if (contentType.includes('webm')) return '.webm'
-  if (contentType.includes('mpeg') || contentType.includes('mp3')) return '.mp3'
-  if (contentType.includes('ogg')) return '.ogg'
-  return '.m4a'
+  if (!contentType.toLowerCase().includes('audio/mpeg')) {
+    throw new Error('the download service returned audio in an unexpected format')
+  }
+  return '.mp3'
 }
 
 function baseFileName(track: Track): string {

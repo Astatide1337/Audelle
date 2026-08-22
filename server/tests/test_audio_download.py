@@ -49,6 +49,14 @@ def test_returns_503_when_yt_dlp_is_missing(monkeypatch):
     assert "yt-dlp" in res.json()["detail"]
 
 
+def test_returns_503_when_ffmpeg_is_missing(monkeypatch):
+    _patch_resolve(monkeypatch)
+    monkeypatch.setattr(audio_mod.shutil, "which", lambda _: None)
+    res = client.get("/api/audio/dQw4w9WgXcQ")
+    assert res.status_code == 503
+    assert "ffmpeg" in res.json()["detail"]
+
+
 def test_maps_unavailable_videos_to_404(fake_yt_dlp, monkeypatch):
     def fail(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "yt-dlp", stderr="ERROR: Video unavailable\n")
@@ -133,21 +141,22 @@ def test_resolver_rejects_non_googlevideo_stream_urls(fake_yt_dlp, monkeypatch):
     assert excinfo.value.status_code == 502
 
 
-def test_streams_audio_bytes_with_attachment_headers(monkeypatch):
-    payload = b"fake-audio-bytes" * 100
+def test_streams_mp3_bytes_with_attachment_headers(monkeypatch):
+    payload = b"ID3-fake-mp3-bytes" * 100
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers["Range"] == "bytes=0-"
-        return httpx.Response(200, content=payload, headers={"Content-Type": "audio/mp4"})
+    async def fake_mp3_stream(resolved, ffmpeg):
+        assert resolved.content_type == "audio/mp4"
+        assert ffmpeg == "/usr/bin/ffmpeg"
+        yield payload
 
-    transport = httpx.MockTransport(handler)
-    monkeypatch.setattr(audio_mod, "_make_client", lambda: httpx.AsyncClient(transport=transport))
     _patch_resolve(monkeypatch)
+    monkeypatch.setattr(audio_mod, "_require_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(audio_mod, "_mp3_byte_stream", fake_mp3_stream)
 
     with client.stream("GET", "/api/audio/dQw4w9WgXcQ") as res:
         assert res.status_code == 200
-        assert res.headers["content-type"] == "audio/mp4"
-        assert 'attachment; filename="audelle-dQw4w9WgXcQ.m4a"' in res.headers["content-disposition"]
+        assert res.headers["content-type"] == "audio/mpeg"
+        assert 'attachment; filename="audelle-dQw4w9WgXcQ.mp3"' in res.headers["content-disposition"]
         body = b"".join(res.iter_bytes())
 
     assert body == payload
@@ -179,8 +188,27 @@ def test_maps_upstream_stream_failures_to_502(monkeypatch):
 
     transport = httpx.MockTransport(handler)
     monkeypatch.setattr(audio_mod, "_make_client", lambda: httpx.AsyncClient(transport=transport))
-    _patch_resolve(monkeypatch)
+
+    class FakeStdin:
+        def __init__(self):
+            self.closed = False
+
+        def is_closing(self):
+            return self.closed
+
+        def close(self):
+            self.closed = True
+
+        def write(self, _chunk):
+            pass
+
+        async def drain(self):
+            pass
+
+    stdin = FakeStdin()
+    resolved = audio_mod.ResolvedAudio(url="https://streams.example/audio", content_type="audio/mp4")
 
     with pytest.raises(AudioDownloadError) as excinfo:
-        client.get("/api/audio/dQw4w9WgXcQ")
+        asyncio.run(audio_mod._feed_ffmpeg_input(resolved, stdin))
     assert excinfo.value.status_code == 502
+    assert stdin.closed

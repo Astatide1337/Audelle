@@ -41,13 +41,13 @@ test('buildZip writes distinct central-directory pointers for every file', async
   assert.notEqual(entries[0].localOffset, entries[1].localOffset)
 })
 
-test('downloadPlaylistZip preserves response bytes and media extensions', async (context) => {
+test('downloadPlaylistZip preserves MP3 response bytes and uses MP3 extensions', async (context) => {
   const originalFetch = globalThis.fetch
   context.after(() => { globalThis.fetch = originalFetch })
   globalThis.fetch = async (url) => {
-    const webm = String(url).includes('track-one')
-    return new Response(webm ? 'opus-bytes' : 'aac-bytes', {
-      headers: { 'Content-Type': webm ? 'audio/webm' : 'audio/mp4' },
+    const first = String(url).includes('track-one')
+    return new Response(first ? 'mp3-one' : 'mp3-two', {
+      headers: { 'Content-Type': 'audio/mpeg' },
     })
   }
   const tracks = [
@@ -59,8 +59,8 @@ test('downloadPlaylistZip preserves response bytes and media extensions', async 
   const entries = await readStoredZip(result.blob)
 
   assert.deepEqual(entries.map(({ name, data }) => ({ name, data })), [
-    { name: 'Artist — Signal.webm', data: 'opus-bytes' },
-    { name: 'Artist — Signal (2).m4a', data: 'aac-bytes' },
+    { name: 'Artist — Signal.mp3', data: 'mp3-one' },
+    { name: 'Artist — Signal (2).mp3', data: 'mp3-two' },
   ])
   assert.equal(result.failed.length, 0)
 })
@@ -69,7 +69,7 @@ test('downloadPlaylistZip discards completed tracks when cancelled', async (cont
   const originalFetch = globalThis.fetch
   context.after(() => { globalThis.fetch = originalFetch })
   globalThis.fetch = async () => new Response('audio-bytes', {
-    headers: { 'Content-Type': 'audio/webm' },
+    headers: { 'Content-Type': 'audio/mpeg' },
   })
   const tracks = [
     { id: 'track-one01', name: 'Signal', artists: ['Artist'], year: 2026, popularity: 1, watch_url: '', album_art: null },
@@ -81,4 +81,17 @@ test('downloadPlaylistZip discards completed tracks when cancelled', async (cont
     downloadPlaylistZip(tracks, { onTrackDone: () => controller.abort() }, controller.signal),
     DownloadCancelledError,
   )
+})
+
+test('downloadPlaylistZip rejects mislabeled non-MP3 responses', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async () => new Response('webm-bytes', {
+    headers: { 'Content-Type': 'audio/webm' },
+  })
+  const tracks = [
+    { id: 'track-one01', name: 'Signal', artists: ['Artist'], year: 2026, popularity: 1, watch_url: '', album_art: null },
+  ]
+
+  await assert.rejects(downloadPlaylistZip(tracks), /None of the tracks could be downloaded/)
 })

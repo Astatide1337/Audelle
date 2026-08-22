@@ -32,7 +32,12 @@ ENV PATH=/app/server/.venv/bin:$PATH \
     XDG_CACHE_HOME=/tmp/.cache \
     FASTEMBED_CACHE_PATH=/opt/fastembed-cache \
     AUDELLE_WEB_DIST=/app/web
-RUN groupadd --gid 10001 audelle && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp audelle
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libmp3lame \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 audelle \
+    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp audelle
 WORKDIR /app/server
 COPY --from=deno /deno /usr/local/bin/deno
 COPY --from=python-build --chown=10001:10001 /app/server/.venv ./.venv

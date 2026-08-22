@@ -23,6 +23,7 @@ def test_health():
 
 def test_liveness_and_readiness(monkeypatch):
     assert client.get("/api/health/live").json() == {"status": "ok"}
+    monkeypatch.setattr(main_module, "audio_download_ready", lambda: True)
     assert client.get("/api/health/ready").json() == {"status": "ready"}
 
     monkeypatch.setattr(main_module, "audio_download_ready", lambda: False)

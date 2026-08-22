@@ -1,9 +1,9 @@
 """Stateless audio download support for generated playlists.
 
 Audelle never accepts stream URLs from clients. A request carries only a bare
-YouTube video ID; the best available audio stream is resolved here with yt-dlp
-and proxied straight to the browser. Nothing is written to disk and nothing is
-cached between requests.
+YouTube video ID; the best available audio stream is resolved here with yt-dlp,
+transcoded to a high-quality MP3 stream, and proxied to the browser. Nothing is
+written to disk and nothing is cached between requests.
 """
 
 import asyncio
@@ -26,6 +26,7 @@ STREAM_CONNECT_TIMEOUT_SECONDS = 15.0
 STREAM_READ_TIMEOUT_SECONDS = 30.0
 # Safety cap for one track; typical bestaudio files are well under 20 MB.
 MAX_AUDIO_BYTES = 256 * 1024 * 1024
+MP3_BITRATE = "320k"
 
 
 class AudioDownloadError(Exception):
@@ -100,6 +101,16 @@ def _require_yt_dlp() -> str:
     raise AudioDownloadError(
         503,
         "audio downloads are unavailable on this server (yt-dlp is not installed)",
+    )
+
+
+def _require_ffmpeg() -> str:
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+    raise AudioDownloadError(
+        503,
+        "MP3 downloads are unavailable on this server (ffmpeg is not installed)",
     )
 
 
@@ -181,38 +192,100 @@ def _make_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(limits=limits, timeout=timeout, follow_redirects=False)
 
 
-async def stream_audio(video_id: str) -> StreamingResponse:
-    """Proxy the resolved audio bytes to the client without buffering them."""
-    resolved = await _resolve_async(video_id)
-
-    async def byte_stream():
+async def _feed_ffmpeg_input(resolved: ResolvedAudio, stdin: asyncio.StreamWriter) -> None:
+    """Validate and bound the upstream bytes before writing them to FFmpeg."""
+    try:
         async with _make_client() as client:
-            sent = 0
-            try:
-                request_headers = dict(resolved.headers)
-                # YouTube intentionally rate-limits an ordinary full-object
-                # request. yt-dlp's own downloader requests a byte range; the
-                # equivalent open-ended range preserves the exact file while
-                # avoiding that throttle.
-                request_headers["Range"] = "bytes=0-"
-                async with client.stream("GET", resolved.url, headers=request_headers) as response:
-                    if response.status_code >= 400:
-                        raise AudioDownloadError(502, "the audio stream could not be read")
-                    async for chunk in response.aiter_bytes(64 * 1024):
-                        sent += len(chunk)
-                        if sent > MAX_AUDIO_BYTES:
-                            raise AudioDownloadError(502, "the audio stream exceeded the size limit")
-                        yield chunk
-            except httpx.HTTPError as exc:
-                # A browser-initiated cancellation surfaces as task cancellation,
-                # which propagates naturally; only upstream transport failures
-                # are surfaced as errors here.
-                raise AudioDownloadError(502, "the audio stream was interrupted") from exc
+            received = 0
+            request_headers = dict(resolved.headers)
+            # YouTube intentionally rate-limits an ordinary full-object
+            # request. yt-dlp's own downloader requests a byte range; the
+            # equivalent open-ended range avoids that throttle.
+            request_headers["Range"] = "bytes=0-"
+            async with client.stream("GET", resolved.url, headers=request_headers) as response:
+                if response.status_code >= 400:
+                    raise AudioDownloadError(502, "the audio stream could not be read")
+                async for chunk in response.aiter_bytes(64 * 1024):
+                    received += len(chunk)
+                    if received > MAX_AUDIO_BYTES:
+                        raise AudioDownloadError(502, "the audio stream exceeded the size limit")
+                    stdin.write(chunk)
+                    await stdin.drain()
+    finally:
+        if not stdin.is_closing():
+            stdin.close()
 
-    filename = f"audelle-{video_id}.{resolved.extension}"
+
+async def _mp3_byte_stream(resolved: ResolvedAudio, ffmpeg: str):
+    """Feed a validated upstream stream through one bounded FFmpeg process."""
+    process = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-i",
+        "pipe:0",
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        MP3_BITRATE,
+        "-f",
+        "mp3",
+        "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+
+    producer = asyncio.create_task(_feed_ffmpeg_input(resolved, process.stdin))
+    stderr_reader = asyncio.create_task(process.stderr.read(64 * 1024))
+    sent = 0
+    try:
+        while chunk := await process.stdout.read(64 * 1024):
+            sent += len(chunk)
+            if sent > MAX_AUDIO_BYTES:
+                raise AudioDownloadError(502, "the MP3 output exceeded the size limit")
+            yield chunk
+        await producer
+        return_code = await process.wait()
+        await stderr_reader
+        if return_code != 0:
+            raise AudioDownloadError(502, "the audio stream could not be converted to MP3")
+    except httpx.HTTPError as exc:
+        raise AudioDownloadError(502, "the audio stream was interrupted") from exc
+    except (BrokenPipeError, ConnectionResetError) as exc:
+        raise AudioDownloadError(502, "the audio stream could not be converted to MP3") from exc
+    finally:
+        if not process.stdin.is_closing():
+            process.stdin.close()
+        if not producer.done():
+            producer.cancel()
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+        await asyncio.gather(producer, stderr_reader, return_exceptions=True)
+
+
+async def stream_audio(video_id: str) -> StreamingResponse:
+    """Transcode the resolved audio to MP3 without buffering it or using disk."""
+    resolved = await _resolve_async(video_id)
+    ffmpeg = _require_ffmpeg()
+
+    filename = f"audelle-{video_id}.mp3"
     return StreamingResponse(
-        byte_stream(),
-        media_type=resolved.content_type,
+        _mp3_byte_stream(resolved, ffmpeg),
+        media_type="audio/mpeg",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
@@ -225,9 +298,10 @@ async def _resolve_async(video_id: str) -> ResolvedAudio:
 
 
 def audio_download_ready() -> bool:
-    """Return whether the required resolver executable is available."""
+    """Return whether the resolver and MP3 encoder executables are available."""
     try:
         _require_yt_dlp()
+        _require_ffmpeg()
     except AudioDownloadError:
         return False
     return True
