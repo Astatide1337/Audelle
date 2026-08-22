@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Minimal surface of the YouTube IFrame Player API we actually use.
 interface YTPlayer {
-  cueVideoById: (videoId: string) => void
   loadVideoById: (videoId: string) => void
   getCurrentTime?: () => number
   getDuration?: () => number
@@ -78,17 +77,15 @@ function loadYouTubeApi(): Promise<void> {
 /**
  * Plays audio for the given YouTube video id via the official IFrame Player
  * API (embedding is sanctioned use, unlike extracting a raw stream URL).
- * The first track is cued without autoplay so Safari can start playback from
- * the user's click. Later track changes continue automatically only when the
- * user was already playing. Owns the playback state — position, duration,
- * play/pause, seeking — while queue and repeat policy stay with the caller.
+ * Swapping videoId loads the selected track. Owns the playback state —
+ * position, duration, play/pause, seeking — while queue and repeat policy stay
+ * with the caller.
  */
 export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   const playerRef = useRef<YTPlayer | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const onEndedRef = useRef(onEnded)
   const pendingTrackResetRef = useRef(false)
-  const shouldAutoplayRef = useRef(false)
   const currentVideoIdRef = useRef<string | null>(videoId)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -161,8 +158,7 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     if (!isReady || !videoId) return
     currentVideoIdRef.current = videoId
     pendingTrackResetRef.current = true
-    if (shouldAutoplayRef.current) playerRef.current?.loadVideoById(videoId)
-    else playerRef.current?.cueVideoById(videoId)
+    playerRef.current?.loadVideoById(videoId)
   }, [isReady, videoId])
 
   // The IFrame API offers no time-update event, so poll the playback clock
@@ -189,21 +185,17 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   }, [isPlaying])
 
   const play = useCallback(() => {
-    shouldAutoplayRef.current = true
     playerRef.current?.playVideo?.()
   }, [])
   const pause = useCallback(() => {
-    shouldAutoplayRef.current = false
     playerRef.current?.pauseVideo?.()
   }, [])
   const togglePlay = useCallback(() => {
     // State in React may lag the iframe slightly; ask the player directly.
     const state = playerRef.current?.getPlayerState?.()
     if (state === 1) {
-      shouldAutoplayRef.current = false
       playerRef.current?.pauseVideo?.()
     } else {
-      shouldAutoplayRef.current = true
       playerRef.current?.playVideo?.()
     }
   }, [])
@@ -213,7 +205,6 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     setPlaybackTime(clamped)
   }, [duration])
   const restart = useCallback(() => {
-    shouldAutoplayRef.current = true
     playerRef.current?.seekTo?.(0, true)
     setPlaybackTime(0)
     playerRef.current?.playVideo?.()

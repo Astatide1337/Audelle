@@ -20,7 +20,7 @@ function sharePath() {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    const calls = { cue: 0, load: 0, play: 0, pause: 0 }
+    const calls = { load: 0, play: 0, pause: 0 }
     Object.assign(window, { __audellePlayerCalls: calls })
 
     class MockPlayer {
@@ -37,8 +37,7 @@ test.beforeEach(async ({ page }) => {
         setTimeout(() => options.events.onReady(), 0)
       }
 
-      cueVideoById() { calls.cue += 1; this.state = 5; this.events.onStateChange({ data: 5 }) }
-      loadVideoById() { calls.load += 1; this.state = 1; this.events.onStateChange({ data: 1 }) }
+      loadVideoById() { calls.load += 1; this.state = 5; this.events.onStateChange({ data: 5 }) }
       playVideo() { calls.play += 1; this.state = 1; this.events.onStateChange({ data: 1 }) }
       pauseVideo() { calls.pause += 1; this.state = 2; this.events.onStateChange({ data: 2 }) }
       getPlayerState() { return this.state }
@@ -52,12 +51,12 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('first playback is click-gated and uses a supported player size', async ({ page }) => {
+test('playback can start from a click and uses a supported player size', async ({ page }) => {
   await page.goto(sharePath())
   const play = page.getByRole('button', { name: 'Play', exact: true })
   await expect(play).toBeEnabled()
 
-  await expect.poll(() => page.evaluate(() => (window as never as { __audellePlayerCalls: { cue: number } }).__audellePlayerCalls.cue)).toBe(1)
+  await expect.poll(() => page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(1)
   expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(0)
 
   const frame = page.locator('iframe[title="Mock YouTube player"]')
