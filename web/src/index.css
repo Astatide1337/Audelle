@@ -587,6 +587,14 @@ html::-webkit-scrollbar-thumb:hover {
   backdrop-filter: blur(14px);
 }
 
+.status-toast {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--color-surface-raised) 96%, transparent);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.38), inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(16px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .audio-visualizer__bar {
     transition: none;

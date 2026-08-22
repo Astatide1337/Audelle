@@ -244,7 +244,8 @@ export async function downloadPlaylistZip(
       callbacks.onTrackDone?.(index)
     } catch (error) {
       if (error instanceof DownloadCancelledError) {
-        // Stop immediately; whatever completed stays available for the archive.
+        // Cancellation discards the entire in-memory archive. A partial
+        // playlist must never escape to a caller that could save it.
         break
       }
       const reason = error instanceof Error ? error.message : 'download failed'
@@ -253,8 +254,9 @@ export async function downloadPlaylistZip(
     }
   }
 
+  if (signal?.aborted) throw new DownloadCancelledError()
+
   if (files.length === 0) {
-    if (signal?.aborted) throw new DownloadCancelledError()
     throw new Error('None of the tracks could be downloaded.')
   }
 

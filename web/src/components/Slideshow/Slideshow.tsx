@@ -57,6 +57,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off')
   const [downloadState, setDownloadState] = useState<DownloadState>({ stage: 'idle' })
   const [downloadToastVisible, setDownloadToastVisible] = useState(false)
+  const [repeatToast, setRepeatToast] = useState<{ mode: RepeatMode; message: string } | null>(null)
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [infoOpen, setInfoOpen] = useState(false)
   const downloadAbortRef = useRef<AbortController | null>(null)
@@ -223,8 +224,19 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   const goPrevious = useCallback(() => goPrev(), [goPrev])
 
   function cycleRepeat() {
-    setRepeatMode((mode) => (mode === 'off' ? 'all' : mode === 'all' ? 'one' : 'off'))
+    const next = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off'
+    setRepeatMode(next)
+    setRepeatToast({
+      mode: next,
+      message: next === 'all' ? 'Playlist will repeat' : next === 'one' ? 'Current track will repeat' : 'Repeat turned off',
+    })
   }
+
+  useEffect(() => {
+    if (!repeatToast) return
+    const timer = window.setTimeout(() => setRepeatToast(null), 2400)
+    return () => window.clearTimeout(timer)
+  }, [repeatToast])
 
   async function startDownload() {
     if (downloadState.stage === 'running') return
@@ -370,7 +382,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
           <circle cx="11" cy="11" r="6" />
           <path d="m16 16 4 4" strokeLinecap="round" />
         </svg>
-        New search
+        New vibe
       </Button>
 
       <div ref={audioContainerRef} className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0" />
@@ -458,20 +470,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
             </Button>
           </div>
 
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.p
-              key={repeatMode}
-              className="label-meta min-h-4 text-ink-dim"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: -3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 3 }}
-              transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
-              aria-live="polite"
-            >
-              {repeatMode === 'off' ? 'Repeat off' : repeatMode === 'all' ? 'Repeat playlist' : 'Repeat current track'}
-            </motion.p>
-          </AnimatePresence>
-
           <div className="flex w-full items-center gap-3">
             <span className="label-meta w-10 shrink-0 text-right text-ink-dim tabular-nums">{formatClock(playbackTime)}</span>
             <input
@@ -548,10 +546,10 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
             role="region"
             aria-label="Download status"
             aria-live="polite"
-            initial={prefersReducedMotion ? false : { opacity: 0, y: -10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
-            transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
+            initial={prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.97, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, x: 0, scale: 1, filter: 'blur(0px)' }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 10, scale: 0.98, filter: 'blur(4px)' }}
+            transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 430, damping: 34, mass: 0.75 }}
           >
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
@@ -570,7 +568,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
                     {downloadState.failedCount > 0 && <span> · {downloadState.failedCount} failed</span>}
                   </p>
                 ) : downloadState.cancelled ? (
-                  <p className="mt-1 text-sm text-ink-dim">Kept {downloadState.savedCount} downloaded {downloadState.savedCount === 1 ? 'track' : 'tracks'}.</p>
+                  <p className="mt-1 text-sm text-ink-dim">No files were saved.</p>
                 ) : downloadState.failed.length > 0 ? (
                   <p className="mt-1 text-sm text-ink-dim">Saved {downloadState.savedCount} of {tracks.length}. {downloadState.failed.length} could not be downloaded.</p>
                 ) : (
@@ -596,6 +594,31 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
           </motion.aside>
         )}
       </AnimatePresence>
+
+      <div className="pointer-events-none fixed inset-x-4 bottom-6 z-50 flex justify-center sm:bottom-8">
+        <AnimatePresence mode="wait">
+          {repeatToast && (
+            <motion.div
+              key={repeatToast.mode}
+              className="status-toast flex max-w-[calc(100vw-2rem)] items-center gap-2.5 px-4 py-3"
+              role="status"
+              aria-live="polite"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 18, scale: 0.96, filter: 'blur(8px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98, filter: 'blur(4px)' }}
+              transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 460, damping: 34, mass: 0.7 }}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 shrink-0 text-ink-dim">
+                <path d="m17 2 4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 11v-1a4 4 0 0 1 4-4h14" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="m7 22-4-4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M21 13v1a4 4 0 0 1-4 4H3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="text-sm font-medium text-ink">{repeatToast.message}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {infoOpen && <TrackInfoDialog track={track} prompt={playlistPrompt} onClose={() => setInfoOpen(false)} />}
     </div>

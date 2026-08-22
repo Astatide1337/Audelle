@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildZip, downloadPlaylistZip } from '../src/lib/download.ts'
+import { buildZip, DownloadCancelledError, downloadPlaylistZip } from '../src/lib/download.ts'
 
 const decoder = new TextDecoder()
 
@@ -63,4 +63,22 @@ test('downloadPlaylistZip preserves response bytes and media extensions', async 
     { name: 'Artist — Signal (2).m4a', data: 'aac-bytes' },
   ])
   assert.equal(result.failed.length, 0)
+})
+
+test('downloadPlaylistZip discards completed tracks when cancelled', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async () => new Response('audio-bytes', {
+    headers: { 'Content-Type': 'audio/webm' },
+  })
+  const tracks = [
+    { id: 'track-one01', name: 'Signal', artists: ['Artist'], year: 2026, popularity: 1, watch_url: '', album_art: null },
+    { id: 'track-two02', name: 'Afterglow', artists: ['Artist'], year: 2026, popularity: 1, watch_url: '', album_art: null },
+  ]
+  const controller = new AbortController()
+
+  await assert.rejects(
+    downloadPlaylistZip(tracks, { onTrackDone: () => controller.abort() }, controller.signal),
+    DownloadCancelledError,
+  )
 })
