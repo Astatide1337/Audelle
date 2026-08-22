@@ -189,7 +189,13 @@ async def stream_audio(video_id: str) -> StreamingResponse:
         async with _make_client() as client:
             sent = 0
             try:
-                async with client.stream("GET", resolved.url, headers=dict(resolved.headers)) as response:
+                request_headers = dict(resolved.headers)
+                # YouTube intentionally rate-limits an ordinary full-object
+                # request. yt-dlp's own downloader requests a byte range; the
+                # equivalent open-ended range preserves the exact file while
+                # avoiding that throttle.
+                request_headers["Range"] = "bytes=0-"
+                async with client.stream("GET", resolved.url, headers=request_headers) as response:
                     if response.status_code >= 400:
                         raise AudioDownloadError(502, "the audio stream could not be read")
                     async for chunk in response.aiter_bytes(64 * 1024):

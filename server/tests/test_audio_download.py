@@ -137,6 +137,7 @@ def test_streams_audio_bytes_with_attachment_headers(monkeypatch):
     payload = b"fake-audio-bytes" * 100
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Range"] == "bytes=0-"
         return httpx.Response(200, content=payload, headers={"Content-Type": "audio/mp4"})
 
     transport = httpx.MockTransport(handler)
