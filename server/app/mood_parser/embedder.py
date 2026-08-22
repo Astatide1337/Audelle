@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 import numpy as np
@@ -8,7 +9,8 @@ MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 @lru_cache(maxsize=1)
 def _model() -> TextEmbedding:
-    return TextEmbedding(model_name=MODEL_NAME)
+    cache_dir = os.getenv("FASTEMBED_CACHE_PATH")
+    return TextEmbedding(model_name=MODEL_NAME, cache_dir=cache_dir) if cache_dir else TextEmbedding(model_name=MODEL_NAME)
 
 
 def embed(text: str) -> np.ndarray:

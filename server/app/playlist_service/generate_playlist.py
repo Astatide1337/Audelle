@@ -19,7 +19,9 @@ def apply_filters(tracks: list[TrackCandidate], filters: Filters) -> list[TrackC
     for t in tracks:
         if filters.year_range:
             year_from, year_to = filters.year_range
-            if (year_from is not None and t.year < year_from) or (year_to is not None and t.year > year_to):
+            # A missing catalog year is represented as zero. It cannot satisfy
+            # an explicit year constraint, including an upper-bound-only one.
+            if t.year <= 0 or (year_from is not None and t.year < year_from) or (year_to is not None and t.year > year_to):
                 continue
         if filters.min_views is not None and t.popularity < filters.min_views:
             continue

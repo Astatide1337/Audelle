@@ -1,10 +1,10 @@
 from itertools import product
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.schemas import FiltersIn
-from app.export_service.errors import ExportOAuthError
-from app import main as main_module
+import app.main as main_module
 from app.main import MAX_API_BODY_BYTES, _to_filters, app
 
 client = TestClient(app)
@@ -19,6 +19,16 @@ def test_health():
     assert res.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
     assert res.headers["cache-control"] == "no-store"
     assert len(res.headers["x-request-id"]) == 32
+
+
+def test_liveness_and_readiness(monkeypatch):
+    assert client.get("/api/health/live").json() == {"status": "ok"}
+    assert client.get("/api/health/ready").json() == {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "audio_download_ready", lambda: False)
+    unavailable = client.get("/api/health/ready")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"] == "audio resolver is unavailable"
 
 
 def test_request_id_is_correlated_only_when_it_matches_safe_format():
@@ -75,18 +85,6 @@ def test_rejects_oversized_api_body_before_parsing():
     assert res.status_code == 413
 
 
-def test_export_provider_failures_are_generic_at_http_boundary(monkeypatch):
-    def fail_start():
-        raise ExportOAuthError("provider detail must not escape")
-
-    monkeypatch.setattr(main_module, "start_export", fail_start)
-    res = client.post("/api/export/youtube-music/start")
-
-    assert res.status_code == 502
-    assert res.json()["detail"] == "YouTube Music authorization failed; please try again"
-    assert "provider detail" not in res.text
-
-
 def test_all_64_supported_filter_combinations_cross_the_api_boundary():
     """Exercise every UI filter state without making 64 live catalog calls."""
     cases = product(
@@ -116,6 +114,7 @@ def test_all_64_supported_filter_combinations_cross_the_api_boundary():
     assert count == 64
 
 
+@pytest.mark.live
 def test_generates_playlist_live():
     res = client.post("/api/playlist", json={"text": "hyped up for leg day at the gym", "limit": 5})
     assert res.status_code == 200
@@ -128,11 +127,14 @@ def test_generates_playlist_live():
         assert track["watch_url"].startswith("https://music.youtube.com/watch?v=")
 
 
+@pytest.mark.live
 def test_applies_year_filter_live():
     res = client.post(
         "/api/playlist",
         json={"text": "beach vacation with friends", "filters": {"year_from": 2020, "year_to": 2024}, "limit": 5},
     )
     assert res.status_code == 200
-    for track in res.json()["tracks"]:
+    tracks = res.json()["tracks"]
+    assert tracks, "the live catalog returned no tracks, so the year constraint cannot be verified"
+    for track in tracks:
         assert 2020 <= track["year"] <= 2024

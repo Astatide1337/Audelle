@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { CatalogUnavailableError, generatePlaylist } from './lib/api'
-import type { Filters, PlaylistResponse } from './lib/types'
+import type { Filters, PlaylistResponse, Track } from './lib/types'
+import { decodePlaylistSnapshot, type PlaylistSnapshot, type ShareTrack } from './lib/share'
 import { FiltersPanel } from './components/FiltersPanel'
 import { Slideshow } from './components/Slideshow/Slideshow'
 import { TextEffect } from './components/core/text-effect'
@@ -9,6 +10,25 @@ import { ResultTransition } from './components/ResultTransition'
 import { Button } from './components/ui/Button'
 
 type Status = 'idle' | 'loading' | 'error' | 'done'
+
+/** A playlist opened from a #v= share link — no server state involved. */
+type SharedView =
+  | { stage: 'idle' }
+  | { stage: 'loading' }
+  | { stage: 'invalid' }
+  | { stage: 'ready'; snapshot: PlaylistSnapshot; tracks: Track[] }
+
+function trackFromSnapshot(shareTrack: ShareTrack): Track {
+  return {
+    id: shareTrack.id,
+    name: shareTrack.name,
+    artists: shareTrack.artists,
+    year: shareTrack.year,
+    popularity: 0,
+    watch_url: `https://www.youtube.com/watch?v=${shareTrack.id}`,
+    album_art: shareTrack.albumArt ?? null,
+  }
+}
 
 const EXAMPLE_PROMPTS = [
   'a late-night drive through the city',
@@ -29,6 +49,7 @@ function App() {
   const [showSlideshow, setShowSlideshow] = useState(false)
   const [isTransitioningToResults, setIsTransitioningToResults] = useState(false)
   const [isMusicReady, setIsMusicReady] = useState(false)
+  const [shared, setShared] = useState<SharedView>({ stage: 'idle' })
   const prefersReducedMotion = useReducedMotion()
   const hasInvalidYearRange =
     filters.yearFrom !== undefined && filters.yearTo !== undefined && filters.yearFrom > filters.yearTo
@@ -39,6 +60,41 @@ function App() {
     setStatus('done')
   }, [finishResultTransition])
   const markMusicReady = useCallback(() => setIsMusicReady(true), [])
+
+  // Share links live entirely in the URL fragment; decode locally on load
+  // and whenever the hash changes (reshare, back/forward).
+  useEffect(() => {
+    let cancelled = false
+
+    function loadFromHash() {
+      const hash = window.location.hash
+      if (!hash.startsWith('#v=')) {
+        if (!cancelled) setShared({ stage: 'idle' })
+        return
+      }
+      if (!cancelled) setShared({ stage: 'loading' })
+      decodePlaylistSnapshot(hash.slice(3)).then((snapshot) => {
+        if (cancelled) return
+        if (!snapshot) {
+          setShared({ stage: 'invalid' })
+          return
+        }
+        setShared({ stage: 'ready', snapshot, tracks: snapshot.tracks.map(trackFromSnapshot) })
+      })
+    }
+
+    loadFromHash()
+    window.addEventListener('hashchange', loadFromHash)
+    return () => {
+      cancelled = true
+      window.removeEventListener('hashchange', loadFromHash)
+    }
+  }, [])
+
+  function closeSharedPlaylist() {
+    history.replaceState(null, '', location.pathname + location.search)
+    setShared({ stage: 'idle' })
+  }
 
   function typePrompt(prompt: string) {
     if (isTyping || status === 'loading') return
@@ -105,10 +161,43 @@ function App() {
         <div className="ambient-glow__shade" />
       </div>
 
-      {shouldRenderSlideshow && result ? (
+      {shared.stage === 'ready' ? (
+        <Slideshow
+          tracks={shared.tracks}
+          playlistTitle={shared.snapshot.title}
+          playlistPrompt={shared.snapshot.prompt}
+          playlistSeed={shared.snapshot.seed}
+          onClose={closeSharedPlaylist}
+        />
+      ) : shared.stage === 'loading' ? (
+        <main className="relative mx-auto flex min-h-[100dvh] max-w-4xl items-center justify-center px-6">
+          <p className="label-meta animate-pulse text-ink-dim">Opening shared playlist…</p>
+        </main>
+      ) : shared.stage === 'invalid' ? (
+        <main className="relative mx-auto flex min-h-[100dvh] max-w-4xl flex-col items-center justify-center px-6 text-center">
+          <img
+            src="/audelle-mark.png"
+            alt=""
+            aria-hidden="true"
+            width={36}
+            height={40}
+            decoding="async"
+            className="h-10 w-auto object-contain"
+          />
+          <h1 className="type-display mt-4 text-3xl text-ink sm:text-4xl">This link didn't survive the trip</h1>
+          <p className="type-body mt-3 max-w-md text-base leading-7 text-ink-dim">
+            The playlist snapshot in this share link is malformed, outdated, or too large. Ask for a fresh link, or start a new vibe below.
+          </p>
+          <Button type="button" onClick={closeSharedPlaylist} size="md" className="mt-6">
+            Go to Audelle
+          </Button>
+        </main>
+      ) : shouldRenderSlideshow && result ? (
         <Slideshow
           tracks={result.tracks}
+          playlistTitle={text.trim()}
           playlistPrompt={text.trim()}
+          playlistSeed={result.seed}
           onMusicReady={markMusicReady}
           onClose={() => {
             setShowSlideshow(false)
@@ -126,13 +215,13 @@ function App() {
         <div className="max-w-2xl">
           <div className="flex items-center gap-3">
             <img
-              src="/audelle-logo.svg"
+              src="/audelle-mark.png"
               alt=""
               aria-hidden="true"
               width={36}
-              height={36}
+              height={40}
               decoding="async"
-              className="h-9 w-9 shrink-0 rounded-full"
+              className="h-10 w-auto shrink-0 object-contain"
             />
             <p className="label-meta text-ember">Audelle</p>
           </div>

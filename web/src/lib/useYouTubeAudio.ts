@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Minimal surface of the YouTube IFrame Player API we actually use.
 interface YTPlayer {
   loadVideoById: (videoId: string) => void
   getCurrentTime?: () => number
+  getDuration?: () => number
+  getPlayerState?: () => number
+  playVideo?: () => void
+  pauseVideo?: () => void
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void
   destroy: () => void
 }
 
@@ -69,7 +74,8 @@ function loadYouTubeApi(): Promise<void> {
  * Plays audio for the given YouTube video id via the official IFrame Player
  * API (embedding is sanctioned use, unlike extracting a raw stream URL).
  * Swapping videoId calls loadVideoById, which loads and starts playing the
- * new track — matches "play on focus, change on next" directly.
+ * new track. Owns the playback state — position, duration, play/pause,
+ * seeking — while queue and repeat policy stay with the caller.
  */
 export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   const playerRef = useRef<YTPlayer | null>(null)
@@ -79,6 +85,7 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackTime, setPlaybackTime] = useState(0)
+  const [duration, setDuration] = useState(0)
   const [hasError, setHasError] = useState(false)
 
   useEffect(() => {
@@ -112,6 +119,7 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
               if (pendingTrackResetRef.current && (event.data === 1 || event.data === 3 || event.data === 5)) {
                 pendingTrackResetRef.current = false
                 setPlaybackTime(0)
+                setDuration(playerRef.current?.getDuration?.() ?? 0)
               }
               if (event.data === 0) {
                 setPlaybackTime(0)
@@ -138,6 +146,8 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     playerRef.current?.loadVideoById(videoId)
   }, [isReady, videoId])
 
+  // The IFrame API offers no time-update event, so poll the playback clock
+  // while playing; this also drives the visualizer.
   useEffect(() => {
     if (!isPlaying) return
 
@@ -146,6 +156,10 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
       const player = playerRef.current
       const nextTime = player?.getCurrentTime?.()
       if (typeof nextTime === 'number' && Number.isFinite(nextTime)) setPlaybackTime(nextTime)
+      const nextDuration = player?.getDuration?.()
+      if (typeof nextDuration === 'number' && Number.isFinite(nextDuration) && nextDuration > 0) {
+        setDuration((current) => (Math.abs(current - nextDuration) > 0.5 ? nextDuration : current))
+      }
       timer = window.setTimeout(pollPlayback, 100)
     }
 
@@ -155,5 +169,24 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     }
   }, [isPlaying])
 
-  return { containerRef, isReady, isPlaying, playbackTime, hasError }
+  const play = useCallback(() => playerRef.current?.playVideo?.(), [])
+  const pause = useCallback(() => playerRef.current?.pauseVideo?.(), [])
+  const togglePlay = useCallback(() => {
+    // State in React may lag the iframe slightly; ask the player directly.
+    const state = playerRef.current?.getPlayerState?.()
+    if (state === 1) playerRef.current?.pauseVideo?.()
+    else playerRef.current?.playVideo?.()
+  }, [])
+  const seek = useCallback((seconds: number) => {
+    const clamped = Math.max(0, Math.min(seconds, duration > 0 ? duration : seconds))
+    playerRef.current?.seekTo?.(clamped, true)
+    setPlaybackTime(clamped)
+  }, [duration])
+  const restart = useCallback(() => {
+    playerRef.current?.seekTo?.(0, true)
+    setPlaybackTime(0)
+    playerRef.current?.playVideo?.()
+  }, [])
+
+  return { containerRef, isReady, isPlaying, playbackTime, duration, hasError, play, pause, togglePlay, seek, restart }
 }

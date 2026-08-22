@@ -49,10 +49,32 @@ def test_build_search_term_candidates_returns_nothing_for_empty_plan():
         (None, 0),
         ("", 0),
         ("garbage", 0),
+        ("1.2.3M", 0),
     ],
 )
 def test_parse_views(raw, expected):
     assert _parse_views(raw) == expected
+
+
+@pytest.mark.asyncio
+async def test_album_lookup_does_not_cache_transient_failures(monkeypatch):
+    search_module._year_cache.clear()
+    calls = 0
+
+    class FakeClient:
+        def get_album(self, album_id: str) -> dict:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary outage")
+            return {"year": "2024"}
+
+    monkeypatch.setattr(search_module, "_client", lambda: FakeClient())
+    sem = search_module.asyncio.Semaphore(1)
+
+    assert await search_module._lookup_year("album-id", sem) == 0
+    assert await search_module._lookup_year("album-id", sem) == 2024
+    assert calls == 2
 
 
 def test_merge_search_results_interleaves_and_deduplicates_variants():
@@ -160,6 +182,7 @@ async def test_search_candidates_rejects_malformed_provider_response(monkeypatch
 
 
 @pytest.mark.asyncio
+@pytest.mark.live
 async def test_search_candidates_live_returns_well_formed_results():
     results = await search_candidates(plan(genre_seeds=["hip hop"], keyword_seeds=["workout", "gym"]), Filters())
     assert len(results) > 0

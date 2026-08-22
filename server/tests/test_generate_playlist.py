@@ -23,6 +23,11 @@ def test_apply_filters_supports_one_sided_year_ranges():
     assert [t.id for t in apply_filters(tracks, Filters(year_range=(None, 2015)))] == ["old"]
 
 
+def test_apply_filters_excludes_tracks_with_unknown_year_when_year_is_constrained():
+    tracks = [track(id="unknown", year=0), track(id="known", year=2010)]
+    assert [t.id for t in apply_filters(tracks, Filters(year_range=(None, 2015)))] == ["known"]
+
+
 def test_apply_filters_excludes_below_min_views():
     tracks = [track(id="a", popularity=100), track(id="b", popularity=100_000)]
     result = apply_filters(tracks, Filters(min_views=10_000))
@@ -65,6 +70,7 @@ def test_seeded_selection_is_reproducible_but_explores_beyond_the_core():
 
 
 @pytest.mark.asyncio
+@pytest.mark.live
 async def test_generate_playlist_live_respects_limit_and_filters_and_ranks_by_popularity():
     plan = QueryPlan(genre_seeds=["hip hop"], keyword_seeds=["workout", "gym"])
     playlist = await generate_playlist(plan, Filters(year_range=(1990, 2026)), 5)
