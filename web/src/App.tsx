@@ -193,18 +193,24 @@ function App() {
           </Button>
         </main>
       ) : shouldRenderSlideshow && result ? (
-        <Slideshow
-          tracks={result.tracks}
-          playlistTitle={text.trim()}
-          playlistPrompt={text.trim()}
-          playlistSeed={result.seed}
-          onMusicReady={markMusicReady}
-          onClose={() => {
-            setShowSlideshow(false)
-            setIsMusicReady(false)
-            setStatus('idle')
-          }}
-        />
+        <div
+          className={showSlideshow ? 'opacity-100' : 'pointer-events-none opacity-0'}
+          aria-hidden={!showSlideshow}
+          inert={!showSlideshow}
+        >
+          <Slideshow
+            tracks={result.tracks}
+            playlistTitle={text.trim()}
+            playlistPrompt={text.trim()}
+            playlistSeed={result.seed}
+            onMusicReady={markMusicReady}
+            onClose={() => {
+              setShowSlideshow(false)
+              setIsMusicReady(false)
+              setStatus('idle')
+            }}
+          />
+        </div>
       ) : (
       <motion.main
         className="relative mx-auto flex min-h-[100dvh] max-w-4xl flex-col justify-center px-6 py-4 sm:px-10 sm:py-4"

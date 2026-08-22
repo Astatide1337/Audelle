@@ -56,6 +56,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   const [currentIndex, setCurrentIndex] = useState(0)
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off')
   const [downloadState, setDownloadState] = useState<DownloadState>({ stage: 'idle' })
+  const [downloadToastVisible, setDownloadToastVisible] = useState(false)
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [infoOpen, setInfoOpen] = useState(false)
   const downloadAbortRef = useRef<AbortController | null>(null)
@@ -229,6 +230,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
     if (downloadState.stage === 'running') return
     const controller = new AbortController()
     downloadAbortRef.current = controller
+    setDownloadToastVisible(true)
 
     setDownloadState({
       stage: 'running',
@@ -313,8 +315,9 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
       <div className="group fixed left-6 top-6 z-20 sm:left-10 sm:top-8">
         <Button
           type="button"
-          aria-label="How to browse tracks"
-          aria-describedby="slideshow-help"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Track info"
+          aria-describedby="track-info-tooltip"
           variant="surface"
           size="icon-sm"
           className="text-ink"
@@ -324,8 +327,8 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
             <path d="M12 10.5v5M12 7.5h.01" strokeLinecap="round" />
           </svg>
         </Button>
-        <span id="slideshow-help" role="tooltip" className="ui-tooltip pointer-events-none absolute left-0 top-11 w-52 px-3 py-2 text-xs leading-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          Use the arrow keys or scroll to browse tracks.
+        <span id="track-info-tooltip" role="tooltip" className="ui-tooltip pointer-events-none absolute left-0 top-11 w-max px-3 py-2 text-xs leading-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          Track info
         </span>
       </div>
 
@@ -391,14 +394,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
           {track.popularity > 0 && <span className="text-ember"> · {formatPlays(track.popularity)}</span>}
         </p>
 
-        <button
-          type="button"
-          onClick={() => setInfoOpen(true)}
-          className="label-meta ui-list-action text-ink-dim transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-        >
-          Track info
-        </button>
-
         <AudioVisualizer isPlaying={isPlaying} playbackTime={playbackTime} trackId={track.id} />
         {hasAudioError && (
           <p className="max-w-sm text-xs text-ink-dim" role="status">
@@ -409,16 +404,16 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
         {/* Transport controls */}
         <div role="group" aria-label="Playback controls" className="playback-controls flex w-full max-w-xl flex-col items-center gap-2">
           <div className="flex items-center gap-2">
-            <Button type="button" onClick={goPrevious} disabled={transportDisabled} aria-label="Previous track" variant="surface" size="icon-sm" className="text-ink">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
-                <path d="M7 5v14" strokeLinecap="round" />
-                <path d="M18 6.6v10.8a.5.5 0 0 1-.78.42l-7.44-5.4a.5.5 0 0 1 0-.84l7.44-5.4a.5.5 0 0 1 .78.42Z" fill="currentColor" stroke="none" />
-              </svg>
-            </Button>
             <Button type="button" onClick={restart} disabled={transportDisabled} aria-label="Restart track" variant="surface" size="icon-sm" className="text-ink">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
                 <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M3 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Button>
+            <Button type="button" onClick={goPrevious} disabled={transportDisabled} aria-label="Previous track" variant="surface" size="icon-sm" className="text-ink">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                <path d="M7 5v14" strokeLinecap="round" />
+                <path d="M18 6.6v10.8a.5.5 0 0 1-.78.42l-7.44-5.4a.5.5 0 0 1 0-.84l7.44-5.4a.5.5 0 0 1 .78.42Z" fill="currentColor" stroke="none" />
               </svg>
             </Button>
             <Button type="button" onClick={togglePlay} disabled={transportDisabled} aria-label={isPlaying ? 'Pause' : 'Play'} size="icon" className="text-canvas">
@@ -443,6 +438,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
               type="button"
               onClick={cycleRepeat}
               aria-label={`Repeat: ${repeatMode === 'off' ? 'off' : repeatMode === 'all' ? 'entire playlist' : 'current track'}`}
+              title={repeatMode === 'off' ? 'Repeat off' : repeatMode === 'all' ? 'Repeat playlist' : 'Repeat current track'}
               aria-pressed={repeatMode !== 'off'}
               variant="surface"
               size="icon-sm"
@@ -461,6 +457,20 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
               )}
             </Button>
           </div>
+
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.p
+              key={repeatMode}
+              className="label-meta min-h-4 text-ink-dim"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: -3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 3 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.16 }}
+              aria-live="polite"
+            >
+              {repeatMode === 'off' ? 'Repeat off' : repeatMode === 'all' ? 'Repeat playlist' : 'Repeat current track'}
+            </motion.p>
+          </AnimatePresence>
 
           <div className="flex w-full items-center gap-3">
             <span className="label-meta w-10 shrink-0 text-right text-ink-dim tabular-nums">{formatClock(playbackTime)}</span>
@@ -500,42 +510,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
           </Button>
         </div>
 
-        {downloadState.stage === 'running' && (
-          <div className="w-full max-w-md">
-            <p className="label-meta mb-2 text-ink-dim" role="status">
-              Downloading{' '}
-              {Math.min(downloadState.currentIndex + 1, tracks.length)}/{tracks.length}
-              {' · '}
-              {downloadState.label}
-              {downloadState.failedCount > 0 && <span className="text-ember"> · {downloadState.failedCount} failed</span>}
-            </p>
-            <div className="download-progress-track">
-              <div className="download-progress-fill" style={{ width: `${progressPercent ?? 4}%` }} />
-            </div>
-          </div>
-        )}
-
-        {downloadState.stage === 'done' && (
-          <div className="max-w-md text-sm text-ink-dim" role="status">
-            {downloadState.cancelled ? (
-              <p>Cancelled — kept {downloadState.savedCount} downloaded {downloadState.savedCount === 1 ? 'track' : 'tracks'}.</p>
-            ) : downloadState.failed.length > 0 ? (
-              <p>Saved {downloadState.savedCount} of {tracks.length}. {downloadState.failed.length} could not be downloaded.</p>
-            ) : (
-              <p>Saved all {downloadState.savedCount} tracks.</p>
-            )}
-            {downloadState.failed.length > 0 && (
-              <ul className="mt-1 space-y-0.5 text-xs">
-                {downloadState.failed.map((item, index) => (
-                  <li key={index} className="truncate">
-                    <span className="text-ink">{item.fileName || 'This track'}</span> — {item.reason}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
         <div
           ref={filmstripRef}
           className="filmstrip-scrollbar mx-auto mt-1 flex h-20 w-[min(45rem,calc(100vw-3rem))] shrink-0 overflow-x-auto overflow-y-hidden"
@@ -566,6 +540,62 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
           ))}
         </div>
       </div>
+
+      <AnimatePresence>
+        {downloadToastVisible && downloadState.stage !== 'idle' && (
+          <motion.aside
+            className="download-toast fixed right-4 top-20 z-40 w-[min(24rem,calc(100vw-2rem))] p-4 text-left sm:right-8 sm:top-24"
+            role="region"
+            aria-label="Download status"
+            aria-live="polite"
+            initial={prefersReducedMotion ? false : { opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="label-meta text-ink">
+                  {downloadState.stage === 'running'
+                    ? `Downloading ${Math.min(downloadState.currentIndex + 1, tracks.length)} of ${tracks.length}`
+                    : downloadState.cancelled
+                      ? 'Download cancelled'
+                      : downloadState.failed.length > 0
+                        ? 'Download finished with issues'
+                        : 'Playlist downloaded'}
+                </p>
+                {downloadState.stage === 'running' ? (
+                  <p className="mt-1 truncate text-sm text-ink-dim">
+                    {downloadState.label}
+                    {downloadState.failedCount > 0 && <span> · {downloadState.failedCount} failed</span>}
+                  </p>
+                ) : downloadState.cancelled ? (
+                  <p className="mt-1 text-sm text-ink-dim">Kept {downloadState.savedCount} downloaded {downloadState.savedCount === 1 ? 'track' : 'tracks'}.</p>
+                ) : downloadState.failed.length > 0 ? (
+                  <p className="mt-1 text-sm text-ink-dim">Saved {downloadState.savedCount} of {tracks.length}. {downloadState.failed.length} could not be downloaded.</p>
+                ) : (
+                  <p className="mt-1 text-sm text-ink-dim">Saved all {downloadState.savedCount} tracks.</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDownloadToastVisible(false)}
+                aria-label="Dismiss download notification"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-dim transition-colors hover:bg-surface-raised hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                  <path d="m7 7 10 10M17 7 7 17" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            {downloadState.stage === 'running' && (
+              <div className="download-progress-track mt-3">
+                <div className="download-progress-fill" style={{ width: `${progressPercent ?? 4}%` }} />
+              </div>
+            )}
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
       {infoOpen && <TrackInfoDialog track={track} prompt={playlistPrompt} onClose={() => setInfoOpen(false)} />}
     </div>
