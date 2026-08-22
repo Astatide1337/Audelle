@@ -1,0 +1,496 @@
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+/*
+ * Always dark, cinematic — deliberate choice, not theme-dependent. Matches
+ * the reference material: numbered index counters, bold uppercase tracked
+ * display type, small gray uppercase meta labels, pill controls, generous
+ * whitespace over an image-forward layout.
+ */
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Archivo", "Inter", system-ui, sans-serif;
+
+  --color-canvas: #0b0b0d;
+  --color-surface: #151517;
+  --color-surface-raised: #1e1e21;
+  --color-line: #2c2c30;
+  --color-ink: #f5f4f2;
+  --color-ink-dim: #86858c;
+  --color-ember: #ff0000;
+  --color-ember-dim: #3a0d0d;
+}
+
+:root {
+  color-scheme: dark;
+  --motion-fast: 160ms;
+  --motion-base: 220ms;
+  --motion-slow: 420ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ambient: 52s;
+  --control-radius: 999px;
+  --panel-radius: 1rem;
+  --row-radius: 0.75rem;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+html {
+  background: var(--color-canvas);
+  scrollbar-color: var(--color-ink-dim) var(--color-canvas);
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+html::-webkit-scrollbar-track {
+  background: var(--color-canvas);
+}
+
+html::-webkit-scrollbar-thumb {
+  border: 0.1875rem solid var(--color-canvas);
+  border-radius: 999px;
+  background: var(--color-ink-dim);
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ember);
+}
+
+::selection {
+  background: var(--color-ember);
+  color: var(--color-canvas);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.type-display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+
+.type-body {
+  font-family: var(--font-sans);
+}
+
+.label-meta {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ui-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  cursor: pointer;
+  padding: 0.75rem 1.5rem;
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-emphasis),
+    opacity var(--motion-fast) var(--ease-standard);
+}
+
+.ui-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.ui-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.ui-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-ember), 0 0 0 4px var(--color-canvas);
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.ui-button--sm {
+  min-height: 2.5rem;
+  padding: 0.625rem 1rem;
+}
+
+.ui-button--md {
+  min-height: 3rem;
+  padding: 0.75rem 1.5rem;
+}
+
+.ui-button--lg {
+  min-height: 3.25rem;
+  padding: 0.875rem 2rem;
+}
+
+.ui-button--icon-sm,
+.ui-button--icon {
+  width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  letter-spacing: 0;
+}
+
+.ui-button--icon-sm {
+  width: 2.25rem;
+  min-height: 2.25rem;
+}
+
+.ui-button--primary {
+  border-color: var(--color-ember);
+  background: var(--color-ember);
+  color: var(--color-canvas);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ember) 86%, var(--color-ink));
+}
+
+.ui-button--surface {
+  border-color: color-mix(in srgb, var(--color-line) 78%, var(--color-ink));
+  background: color-mix(in srgb, var(--color-canvas) 72%, transparent);
+  color: var(--color-ink);
+  backdrop-filter: blur(8px);
+}
+
+.ui-button--surface:hover:not(:disabled) {
+  border-color: var(--color-ink-dim);
+  background: color-mix(in srgb, var(--color-canvas) 86%, transparent);
+}
+
+.ui-button--ghost {
+  color: var(--color-ink-dim);
+}
+
+.ui-button--ghost:hover:not(:disabled) {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.ui-button--outline {
+  border-color: var(--color-line);
+  color: var(--color-ink);
+}
+
+.ui-button--outline:hover:not(:disabled) {
+  border-color: var(--color-ember);
+  color: var(--color-ember);
+}
+
+.ui-button__badge {
+  border-radius: var(--control-radius);
+  background: var(--color-ember-dim);
+  padding: 0.25rem 0.5rem;
+  color: var(--color-ember);
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+}
+
+.ui-surface {
+  border: 1px solid var(--color-line);
+  border-radius: var(--panel-radius);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+}
+
+.ui-input-surface {
+  transition: border-color var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+}
+
+.ui-input-surface:focus-within {
+  border-color: color-mix(in srgb, var(--color-ember) 70%, var(--color-line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ember) 14%, transparent);
+}
+
+.ui-field {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  background: transparent;
+  padding: 0.5rem 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.ui-field::placeholder {
+  color: color-mix(in srgb, var(--color-ink-dim) 50%, transparent);
+}
+
+.ui-field:focus {
+  border-bottom-color: var(--color-ember);
+  outline: none;
+}
+
+.ui-dialog {
+  border-radius: var(--panel-radius);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.45);
+}
+
+.ui-tooltip {
+  border: 1px solid var(--color-line);
+  border-radius: var(--row-radius);
+  background: color-mix(in srgb, var(--color-canvas) 94%, transparent);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.4);
+  color: var(--color-ink-dim);
+}
+
+.ui-overlay {
+  background: rgb(11 11 13 / 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.ui-menu {
+  border: 1px solid var(--color-line);
+  border-radius: var(--row-radius);
+  background: var(--color-surface-raised);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.45);
+}
+
+.ui-menu-option {
+  min-height: 2.5rem;
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.ui-menu-option:hover,
+.ui-menu-option:focus-visible {
+  background: var(--color-surface);
+  color: var(--color-ember);
+  outline: none;
+}
+
+.ui-menu-option--selected,
+.ui-menu-option--selected:hover,
+.ui-menu-option--selected:focus-visible {
+  background: var(--color-ember);
+  color: var(--color-canvas);
+}
+
+.ui-list-action {
+  border-radius: var(--row-radius);
+  padding-inline: 1rem;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-emphasis), opacity var(--motion-fast) var(--ease-standard);
+}
+
+.ui-list-action:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+}
+
+.ui-list-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-surface-raised) 66%, transparent);
+}
+
+.ui-list-action:active:not(:disabled) {
+  transform: translateX(0.125rem);
+}
+
+.ui-link {
+  color: var(--color-ember);
+  text-decoration: none;
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.ui-link:hover {
+  color: var(--color-ink);
+}
+
+.ambient-glow {
+  overflow: hidden;
+}
+
+.ambient-glow__ember,
+.ambient-glow__shade {
+  position: absolute;
+  width: 74vmax;
+  height: 58vmax;
+  border-radius: 999px;
+  will-change: transform;
+}
+
+.ambient-glow__ember {
+  top: -30vmax;
+  right: -25vmax;
+  opacity: 0.58;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-ember) 24%, transparent) 0%, var(--color-ember-dim) 34%, transparent 70%);
+  filter: blur(20px);
+  animation: ember-drift var(--motion-ambient) var(--ease-standard) infinite;
+}
+
+.ambient-glow__shade {
+  bottom: -38vmax;
+  left: -30vmax;
+  background: radial-gradient(circle, var(--color-surface-raised) 0%, transparent 68%);
+  filter: blur(28px);
+  animation: shade-drift 28s ease-in-out infinite alternate;
+}
+
+@keyframes ember-drift {
+  0% { opacity: 0.42; transform: translate3d(4vw, -2vh, 0) scale(0.94) rotate(-4deg); }
+  12% { opacity: 0.62; transform: translate3d(-26vw, 18vh, 0) scale(1.04) rotate(6deg); }
+  24% { opacity: 0.72; transform: translate3d(-54vw, 6vh, 0) scale(1.1) rotate(14deg); }
+  36% { opacity: 0.55; transform: translate3d(-18vw, 46vh, 0) scale(0.98) rotate(2deg); }
+  48% { opacity: 0.68; transform: translate3d(30vw, 28vh, 0) scale(1.08) rotate(-10deg); }
+  60% { opacity: 0.48; transform: translate3d(20vw, -22vh, 0) scale(0.9) rotate(-16deg); }
+  72% { opacity: 0.64; transform: translate3d(-36vw, -28vh, 0) scale(1.06) rotate(-2deg); }
+  84% { opacity: 0.52; transform: translate3d(-62vw, 34vh, 0) scale(0.96) rotate(12deg); }
+  92% { opacity: 0.7; transform: translate3d(-18vw, 58vh, 0) scale(1.02) rotate(6deg); }
+  100% { opacity: 0.42; transform: translate3d(4vw, -2vh, 0) scale(0.94) rotate(-4deg); }
+}
+
+@keyframes shade-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(18vw, -10vh, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-glow__ember,
+  .ambient-glow__shade {
+    animation: none;
+  }
+
+}
+
+.filters-dialog {
+  border-radius: var(--panel-radius);
+  scrollbar-color: var(--color-ink-dim) var(--color-surface);
+  scrollbar-width: thin;
+}
+
+.filters-dialog::-webkit-scrollbar {
+  width: 0.625rem;
+}
+
+.filters-dialog::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+.filters-dialog::-webkit-scrollbar-thumb {
+  border: 0.1875rem solid var(--color-surface);
+  border-radius: 999px;
+  background: var(--color-ink-dim);
+}
+
+/* Keep year fields compact and consistent with the rest of the custom form UI. */
+.filters-dialog input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.filters-dialog input[type="number"]::-webkit-inner-spin-button,
+.filters-dialog input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.filmstrip-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.filmstrip-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.ui-filmstrip-tile {
+  transition: opacity var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.ui-filmstrip-tile:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-ember);
+}
+
+.ui-filmstrip-tile--active {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px var(--color-ember);
+}
+
+.ui-filmstrip-tile--inactive {
+  opacity: 0.65;
+}
+
+.ui-filmstrip-tile--inactive:hover {
+  opacity: 0.9;
+}
+
+.audio-visualizer {
+  position: relative;
+  display: flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.audio-visualizer__bar {
+  width: 0.125rem;
+  height: 0.25rem;
+  transform-origin: center;
+  border-radius: 999px;
+  background: var(--color-ember);
+  opacity: 0.35;
+  transition: height var(--motion-fast) linear, opacity var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard);
+}
+
+.audio-visualizer.is-playing .audio-visualizer__bar {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-visualizer__bar {
+    transition: none;
+  }
+
+  .ui-button,
+  .ui-list-action,
+  .ui-field,
+  .ui-input-surface,
+  .ui-filmstrip-tile {
+    transition: none;
+  }
+}

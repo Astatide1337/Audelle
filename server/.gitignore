@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# This generated model index is a required runtime artifact. Keep it in the
+# release source (the embedding model itself is managed by the image/cache).
+.env

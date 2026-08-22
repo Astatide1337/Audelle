@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Audelle UI quality review</title>
+    <style>
+      :root {
+        --canvas: #0b0b0d;
+        --surface: #151517;
+        --raised: #1e1e21;
+        --line: #2c2c30;
+        --ink: #f5f4f2;
+        --dim: #b3b1b8;
+        --ember: #ff0000;
+        --amber: #f3b84b;
+        --green: #69d18d;
+        --content: 76rem;
+      }
+      * { box-sizing: border-box; }
+      html { background: var(--canvas); }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font: 16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      a { color: var(--ink); text-underline-offset: .18em; }
+      a:focus-visible, button:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
+      .skip { position: absolute; left: -999px; top: 0; background: var(--ink); color: var(--canvas); padding: .5rem .75rem; }
+      .skip:focus { left: 1rem; top: 1rem; z-index: 2; }
+      header, main, footer { width: min(calc(100% - 2.5rem), var(--content)); margin: 0 auto; }
+      header { padding: 4.5rem 0 2rem; border-bottom: 1px solid var(--line); }
+      .eyebrow { margin: 0 0 .65rem; color: var(--ember); font-size: .7rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+      h1, h2 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; font-weight: 900; letter-spacing: -.025em; text-transform: uppercase; }
+      h1 { max-width: 17ch; margin: 0; font-size: clamp(2.6rem, 7vw, 5.8rem); line-height: .9; }
+      h2 { margin: 0; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; }
+      .lede { max-width: 58ch; margin: 1.4rem 0 0; color: var(--dim); font-size: 1.1rem; }
+      .meta { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; margin: 1.5rem 0 0; color: var(--dim); font-size: .88rem; }
+      main { padding: 2.75rem 0 4rem; }
+      section { padding: 2.25rem 0; border-bottom: 1px solid var(--line); }
+      .verdict { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+      .badge { display: inline-block; border: 1px solid var(--amber); color: #ffe0a0; padding: .35rem .6rem; font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+      .summary { margin: .75rem 0 0; max-width: 65ch; color: var(--dim); }
+      .finding { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1.2rem; padding: 1.45rem 0; border-top: 1px solid var(--line); }
+      .finding:first-of-type { margin-top: 1.5rem; }
+      .severity { font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .severity.required { color: #ffe0a0; }
+      .severity.medium { color: #ffaba5; }
+      .severity.optional { color: #b8d8ff; }
+      .finding h3 { margin: -.2rem 0 .45rem; font-size: 1.1rem; }
+      .finding p { margin: .45rem 0; color: var(--dim); }
+      code { padding: .08rem .28rem; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: .87em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .matrix { width: 100%; border-collapse: collapse; margin-top: 1.25rem; font-size: .93rem; }
+      .matrix th, .matrix td { padding: .75rem .6rem; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+      .matrix th { color: var(--dim); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+      .pass { color: var(--green); font-weight: 700; }
+      .unknown { color: var(--amber); font-weight: 700; }
+      .note { margin-top: 1.3rem; padding: 1rem 1.1rem; border-left: 3px solid var(--ember); background: var(--surface); color: var(--dim); }
+      ul { margin: 1rem 0 0; padding-left: 1.1rem; }
+      li + li { margin-top: .5rem; }
+      footer { padding: 1.75rem 0 3rem; color: var(--dim); font-size: .86rem; }
+      @media (max-width: 640px) {
+        header, main, footer { width: min(calc(100% - 1.5rem), var(--content)); }
+        header { padding-top: 2.5rem; }
+        .verdict, .finding { grid-template-columns: 1fr; }
+        .matrix { display: block; overflow-x: auto; white-space: nowrap; }
+      }
+      @media print { body { background: #fff; color: #111; } header, section { border-color: #bbb; } .lede, .summary, .finding p, footer, .meta { color: #444; } code, .note { border-color: #aaa; background: #f4f4f4; color: #111; } .badge { color: #734d00; border-color: #734d00; } }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#report">Skip to report</a>
+    <header>
+      <p class="eyebrow">Audelle · quality review</p>
+      <h1>Design system audit</h1>
+      <p class="lede">Audelle now has one visual language for actions, fields, surfaces, typography, focus states, and motion. This review records the decisions, the local evidence, and the boundaries that still depend on the audio provider.</p>
+      <div class="meta">
+        <span>Reviewed 21 August 2026</span>
+        <span>Scope: home, filters, transition, slideshow, export, visualizer</span>
+        <span>Mode: local source and preview review</span>
+      </div>
+    </header>
+
+    <main id="report">
+      <section aria-labelledby="verdict-heading">
+        <div class="verdict">
+          <div>
+            <p class="eyebrow">Verdict</p>
+            <h2 id="verdict-heading">Consistent locally</h2>
+            <p class="summary">Shared UI tokens now own the repeated decisions: primary actions, muted surface controls, icon controls, form fields, menus, dialogs, links, display type, focus rings, and motion timing. The info control and New search use the same surface treatment.</p>
+          </div>
+          <span class="badge">Verified</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="findings-heading">
+        <p class="eyebrow">Findings</p>
+        <h2 id="findings-heading">Changes verified</h2>
+
+        <article class="finding">
+          <div class="severity optional">Resolved</div>
+          <div>
+            <h3>Controls now follow explicit semantic roles.</h3>
+            <p><code>Button</code> variants cover primary, surface, ghost, outline, and icon controls. The same token set owns radii, minimum heights, focus rings, hover lift, pressed scale, disabled opacity, and reduced-motion behavior.</p>
+            <p>Evidence: <a href="web/src/components/ui/Button.tsx">Button.tsx</a>, <a href="web/src/components/ui/buttonClassNames.ts">buttonClassNames.ts</a>, and <a href="web/src/index.css">index.css</a>.</p>
+          </div>
+        </article>
+
+        <article class="finding">
+          <div class="severity optional">Resolved</div>
+          <div>
+            <h3>Surface and typography decisions are centralized.</h3>
+            <p>Home input, filter dialog, export status, tooltip, and the slideshow controls use shared surface tokens. Display headlines use <code>type-display</code>; compact labels continue to use <code>label-meta</code>. This removes the previous near-duplicate one-off color and spacing strings.</p>
+            <p>Evidence: live home, modal, and slideshow screenshots in the local preview.</p>
+          </div>
+        </article>
+
+        <article class="finding">
+          <div class="severity optional">Resolved</div>
+          <div>
+            <h3>Ambient motion and micro-interactions have a controlled rhythm.</h3>
+            <p>The red ember glow now drifts slowly through a 52-second, multi-waypoint path that crosses the canvas instead of oscillating between two corners. Controls lift on hover, compress on press, and animate focus and field emphasis. The filter dialog and popularity menu retain enter/exit motion and the reduced-motion media query disables decorative movement.</p>
+          </div>
+        </article>
+
+        <article class="finding">
+          <div class="severity medium">Boundary</div>
+          <div>
+            <h3>The visualizer is playback-synced, not raw frequency analysis.</h3>
+            <p>YouTube’s sanctioned IFrame API exposes playback state and current time, but not PCM samples or FFT data from its cross-origin player. Audelle therefore uses a deterministic, per-track bar rhythm driven by the actual playback clock. True beat amplitude requires a same-origin audio source or an uploaded/approved stream that can be connected to Web Audio.</p>
+          </div>
+        </article>
+      </section>
+
+      <section aria-labelledby="verification-heading">
+        <p class="eyebrow">Verification</p>
+        <h2 id="verification-heading">Evidence collected</h2>
+        <table class="matrix">
+          <thead><tr><th>Check</th><th>Result</th><th>Boundary</th></tr></thead>
+          <tbody>
+            <tr><td><code>npm run build</code> and <code>npm run lint</code></td><td class="pass">Pass</td><td>Frontend compilation and static linting; no warnings after extracting the shared class helper.</td></tr>
+            <tr><td>Shared control style check</td><td class="pass">Pass</td><td>Info and New search compute the same surface background, border, radius, and ink color; only size differs by intent.</td></tr>
+            <tr><td>Filter state matrix</td><td class="pass">64 combinations passed</td><td>4 year states × genre empty/present × language empty/present × 4 popularity choices. Existing contract sweep also checks badge count, selected label, and listbox closure after selection.</td></tr>
+            <tr><td>Edge inputs and overflow</td><td class="pass">Pass</td><td>Reversed years, long text, multilingual input, all filters active, clear all, modal menu, and slideshow rail. Live preview measured equal document client/scroll widths.</td></tr>
+            <tr><td>Transition readiness</td><td class="pass">Pass</td><td>The cover starts on submit and the slideshow player mounts underneath it; the reveal waits for the IFrame player readiness signal.</td></tr>
+            <tr><td>Playback visualizer</td><td class="pass">Pass</td><td>Live preview reported playing state and changing bar heights while playback time advanced; filmstrip scroll did not advance the selected track.</td></tr>
+            <tr><td>Production/deployed service</td><td class="unknown">Not checked</td><td>This review did not inspect CI, deployment state, or a remote API.</td></tr>
+          </tbody>
+        </table>
+        <p class="note">The state sweep and browser checks prove local UI behavior. They do not prove production deployment health, YouTube OAuth approval, or raw audio amplitude because those are external/provider boundaries.</p>
+      </section>
+
+      <section aria-labelledby="axes-heading">
+        <p class="eyebrow">Five-axis review</p>
+        <h2 id="axes-heading">Assessment</h2>
+        <ul>
+          <li><strong>Correctness:</strong> controls retain keyboard focus behavior, filter validation, modal focus trapping, and playback-next handling.</li>
+          <li><strong>Readability and architecture:</strong> semantic tokens live in one CSS layer; component code composes roles instead of repeating visual recipes.</li>
+          <li><strong>Security:</strong> export links retain <code>noopener</code>/<code>noreferrer</code>; external provider integration stays behind the sanctioned YouTube IFrame/API boundary.</li>
+          <li><strong>Performance:</strong> visualizer bar profiles are memoized per track and only playback time is polled; no document overflow was measured.</li>
+          <li><strong>Copy:</strong> approved home copy and filter wording remain short and direct; status copy says “Creating playlist.”</li>
+        </ul>
+      </section>
+    </main>
+    <footer>Proven locally: source review, local build/lint, browser screenshots, computed-style checks, overflow checks, and playback-driven DOM sampling. Unknown: production behavior, OAuth approval, and provider-level audio samples.</footer>
+  </body>
+</html>
