@@ -8,6 +8,11 @@ RUN npm run build
 
 FROM ghcr.io/astral-sh/uv:0.8.13@sha256:4de5495181a281bc744845b9579acf7b221d6791f99bcc211b9ec13f417c2853 AS uv
 
+# yt-dlp uses a JavaScript runtime to solve YouTube's current player
+# challenges. Without it, URLs may resolve but downloads are throttled enough
+# to time out in the browser.
+FROM denoland/deno:bin-2.5.1@sha256:49ba8ba927b71c772b4f244206dc1045d35f41d502e13c6f7a053e09821a58ab AS deno
+
 FROM python:3.11-slim-bookworm@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91 AS python-build
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -29,6 +34,7 @@ ENV PATH=/app/server/.venv/bin:$PATH \
     AUDELLE_WEB_DIST=/app/web
 RUN groupadd --gid 10001 audelle && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /tmp audelle
 WORKDIR /app/server
+COPY --from=deno /deno /usr/local/bin/deno
 COPY --from=python-build --chown=10001:10001 /app/server/.venv ./.venv
 COPY --from=python-build --chown=10001:10001 /app/server/app ./app
 COPY --from=python-build --chown=10001:10001 /opt/fastembed-cache /opt/fastembed-cache
