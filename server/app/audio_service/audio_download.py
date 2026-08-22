@@ -42,6 +42,7 @@ class ResolvedAudio:
     url: str
     content_type: str
     extension: str = "m4a"
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 _AUDIO_TYPES = {
@@ -52,6 +53,27 @@ _AUDIO_TYPES = {
     "ogg": "audio/ogg",
     "mp3": "audio/mpeg",
 }
+
+_STREAM_HEADER_ALLOWLIST = {
+    "accept": "Accept",
+    "accept-language": "Accept-Language",
+    "sec-fetch-mode": "Sec-Fetch-Mode",
+    "user-agent": "User-Agent",
+}
+
+
+def _safe_stream_headers(value: object) -> tuple[tuple[str, str], ...]:
+    """Keep only non-secret request metadata required by YouTube media URLs."""
+    if not isinstance(value, dict):
+        return ()
+    headers: list[tuple[str, str]] = []
+    for raw_name, raw_value in value.items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            continue
+        name = _STREAM_HEADER_ALLOWLIST.get(raw_name.lower())
+        if name and len(raw_value) <= 512 and "\r" not in raw_value and "\n" not in raw_value:
+            headers.append((name, raw_value))
+    return tuple(headers)
 
 
 def _validate_stream_url(url: str) -> str:
@@ -146,6 +168,7 @@ def resolve_audio(video_id: str) -> ResolvedAudio:
         url=_validate_stream_url(url),
         content_type=content_type,
         extension=extension,
+        headers=_safe_stream_headers(selected.get("http_headers")),
     )
 
 
@@ -166,7 +189,7 @@ async def stream_audio(video_id: str) -> StreamingResponse:
         async with _make_client() as client:
             sent = 0
             try:
-                async with client.stream("GET", resolved.url) as response:
+                async with client.stream("GET", resolved.url, headers=dict(resolved.headers)) as response:
                     if response.status_code >= 400:
                         raise AudioDownloadError(502, "the audio stream could not be read")
                     async for chunk in response.aiter_bytes(64 * 1024):

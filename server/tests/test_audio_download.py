@@ -99,6 +99,12 @@ def test_resolver_preserves_webm_format_metadata(fake_yt_dlp, monkeypatch):
         "requested_downloads": [{
             "url": "https://rr1---sn-test.googlevideo.com/videoplayback?id=123",
             "ext": "webm",
+            "http_headers": {
+                "User-Agent": "yt-dlp browser agent",
+                "Accept": "*/*",
+                "Cookie": "must-not-leave-the-resolver",
+                "Authorization": "must-not-leave-the-resolver",
+            },
         }]
     }
     monkeypatch.setattr(
@@ -111,6 +117,7 @@ def test_resolver_preserves_webm_format_metadata(fake_yt_dlp, monkeypatch):
 
     assert resolved.content_type == "audio/webm"
     assert resolved.extension == "webm"
+    assert dict(resolved.headers) == {"User-Agent": "yt-dlp browser agent", "Accept": "*/*"}
 
 
 def test_resolver_rejects_non_googlevideo_stream_urls(fake_yt_dlp, monkeypatch):
