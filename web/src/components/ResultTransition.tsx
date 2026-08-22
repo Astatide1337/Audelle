@@ -91,13 +91,13 @@ export function ResultTransition({ isReady, onCovered, onComplete }: ResultTrans
                 key={`${character}-${index}`}
                 aria-hidden="true"
                 className={character === ' ' ? 'w-[0.45em]' : undefined}
-                animate={prefersReducedMotion ? undefined : { y: [0, -8, 0] }}
+                animate={prefersReducedMotion ? undefined : { y: [0, -8, 0, 0] }}
                 transition={prefersReducedMotion ? undefined : {
-                  duration: 0.65,
-                  delay: index * 0.04,
+                  duration: 4,
+                  delay: index * 0.055,
                   ease: [0.22, 1, 0.36, 1],
+                  times: [0, 0.12, 0.25, 1],
                   repeat: Infinity,
-                  repeatDelay: 0.4,
                 }}
               >
                 {character === ' ' ? '\u00a0' : character}
