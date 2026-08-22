@@ -40,7 +40,9 @@ jobs:
           npm test
           npm run lint
           npm run build
-          npm audit --omit=dev
+          npx playwright install --with-deps chromium webkit
+          npm run test:e2e
+          npm audit
 
   image:
     if: github.event_name == 'push'

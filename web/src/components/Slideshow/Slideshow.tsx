@@ -362,7 +362,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
               ref={(el) => {
                 innerRefs.current[i] = el
               }}
-              className="h-full w-full bg-cover bg-left bg-no-repeat"
+              className="h-full w-full bg-contain bg-center bg-no-repeat sm:bg-cover sm:bg-left"
               style={t.album_art ? { backgroundImage: `url(${t.album_art})` } : { backgroundColor: 'var(--color-surface-raised)' }}
             />
           </div>
@@ -385,7 +385,14 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
         New vibe
       </Button>
 
-      <div ref={audioContainerRef} className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0" />
+      {/* YouTube documents 200×200 as the minimum supported IFrame player size.
+          Keep that real size off-screen: collapsing it to 1×1 prevents reliable
+          initialization and playback in Safari. */}
+      <div
+        ref={audioContainerRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed left-[-10000px] top-0 h-[200px] w-[200px] overflow-hidden"
+      />
 
       <div className="absolute inset-x-0 bottom-0 z-20 flex max-h-[92dvh] flex-col items-center gap-3 overflow-y-auto overscroll-contain px-6 pb-6 text-center sm:pb-8">
         <AnimatePresence mode="popLayout" initial={false}>

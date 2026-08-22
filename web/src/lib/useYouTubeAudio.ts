@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Minimal surface of the YouTube IFrame Player API we actually use.
 interface YTPlayer {
+  cueVideoById: (videoId: string) => void
   loadVideoById: (videoId: string) => void
   getCurrentTime?: () => number
   getDuration?: () => number
@@ -25,7 +26,11 @@ declare global {
           height: string
           width: string
           playerVars: Record<string, number | string>
-          events: { onReady: () => void; onStateChange: (event: YTStateChangeEvent) => void }
+          events: {
+            onReady: () => void
+            onStateChange: (event: YTStateChangeEvent) => void
+            onError: () => void
+          }
         },
       ) => YTPlayer
     }
@@ -73,20 +78,23 @@ function loadYouTubeApi(): Promise<void> {
 /**
  * Plays audio for the given YouTube video id via the official IFrame Player
  * API (embedding is sanctioned use, unlike extracting a raw stream URL).
- * Swapping videoId calls loadVideoById, which loads and starts playing the
- * new track. Owns the playback state — position, duration, play/pause,
- * seeking — while queue and repeat policy stay with the caller.
+ * The first track is cued without autoplay so Safari can start playback from
+ * the user's click. Later track changes continue automatically only when the
+ * user was already playing. Owns the playback state — position, duration,
+ * play/pause, seeking — while queue and repeat policy stay with the caller.
  */
 export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   const playerRef = useRef<YTPlayer | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const onEndedRef = useRef(onEnded)
   const pendingTrackResetRef = useRef(false)
+  const shouldAutoplayRef = useRef(false)
+  const currentVideoIdRef = useRef<string | null>(videoId)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackTime, setPlaybackTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [hasError, setHasError] = useState(false)
+  const [errorFor, setErrorFor] = useState<string | null>(null)
 
   useEffect(() => {
     onEndedRef.current = onEnded
@@ -97,13 +105,13 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     loadYouTubeApi().then(() => {
       if (cancelled) return
       if (!containerRef.current || !window.YT) {
-        setHasError(true)
+        setErrorFor('player')
         return
       }
       try {
         playerRef.current = new window.YT.Player(containerRef.current, {
-          height: '0',
-          width: '0',
+          height: '200',
+          width: '200',
           playerVars: { controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
           events: {
             onReady: () => {
@@ -114,7 +122,10 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
               // Treat the first playing state as a second readiness signal. In
               // some browsers the IFrame API emits the state event before the
               // onReady callback reaches the React effect.
-              if (event.data === 1) setIsReady(true)
+              if (event.data === 1) {
+                setIsReady(true)
+                setErrorFor(null)
+              }
               setIsPlaying(event.data === 1)
               if (pendingTrackResetRef.current && (event.data === 1 || event.data === 3 || event.data === 5)) {
                 pendingTrackResetRef.current = false
@@ -126,13 +137,19 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
                 onEndedRef.current()
               }
             },
+            onError: () => {
+              if (!cancelled) {
+                setIsPlaying(false)
+                setErrorFor(currentVideoIdRef.current ?? 'player')
+              }
+            },
           },
         })
       } catch {
-        setHasError(true)
+        setErrorFor('player')
       }
     }).catch(() => {
-      if (!cancelled) setHasError(true)
+      if (!cancelled) setErrorFor('player')
     })
     return () => {
       cancelled = true
@@ -142,8 +159,10 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
 
   useEffect(() => {
     if (!isReady || !videoId) return
+    currentVideoIdRef.current = videoId
     pendingTrackResetRef.current = true
-    playerRef.current?.loadVideoById(videoId)
+    if (shouldAutoplayRef.current) playerRef.current?.loadVideoById(videoId)
+    else playerRef.current?.cueVideoById(videoId)
   }, [isReady, videoId])
 
   // The IFrame API offers no time-update event, so poll the playback clock
@@ -169,13 +188,24 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     }
   }, [isPlaying])
 
-  const play = useCallback(() => playerRef.current?.playVideo?.(), [])
-  const pause = useCallback(() => playerRef.current?.pauseVideo?.(), [])
+  const play = useCallback(() => {
+    shouldAutoplayRef.current = true
+    playerRef.current?.playVideo?.()
+  }, [])
+  const pause = useCallback(() => {
+    shouldAutoplayRef.current = false
+    playerRef.current?.pauseVideo?.()
+  }, [])
   const togglePlay = useCallback(() => {
     // State in React may lag the iframe slightly; ask the player directly.
     const state = playerRef.current?.getPlayerState?.()
-    if (state === 1) playerRef.current?.pauseVideo?.()
-    else playerRef.current?.playVideo?.()
+    if (state === 1) {
+      shouldAutoplayRef.current = false
+      playerRef.current?.pauseVideo?.()
+    } else {
+      shouldAutoplayRef.current = true
+      playerRef.current?.playVideo?.()
+    }
   }, [])
   const seek = useCallback((seconds: number) => {
     const clamped = Math.max(0, Math.min(seconds, duration > 0 ? duration : seconds))
@@ -183,10 +213,12 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
     setPlaybackTime(clamped)
   }, [duration])
   const restart = useCallback(() => {
+    shouldAutoplayRef.current = true
     playerRef.current?.seekTo?.(0, true)
     setPlaybackTime(0)
     playerRef.current?.playVideo?.()
   }, [])
 
+  const hasError = errorFor === 'player' || errorFor === videoId
   return { containerRef, isReady, isPlaying, playbackTime, duration, hasError, play, pause, togglePlay, seek, restart }
 }
