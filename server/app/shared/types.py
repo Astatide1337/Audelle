@@ -27,3 +27,8 @@ class TrackCandidate:
     # raw view count for explicit title/artist requests.
     search_rank: int = 0
     query_match: int = 0
+    # Zero-based provider query variant. -1 is reserved for callers that build
+    # candidates manually; those candidates are treated as exact-query results
+    # for backwards-compatible selection behavior.
+    search_variant: int = -1
+    search_kind: str = ""

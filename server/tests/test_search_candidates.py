@@ -36,6 +36,22 @@ def test_build_search_term_candidates_preserves_explicit_search_text():
     assert variants[0] == "Tom and Jerry classical music"
 
 
+def test_build_search_term_candidates_adds_reference_and_style_variants():
+    variants = build_search_term_candidates(
+        plan(search_text="Tom and Jerry old classical music", genre_seeds=["classical"], keyword_seeds=["orchestral"]),
+        Filters(),
+    )
+
+    assert variants[:6] == [
+        "Tom and Jerry old classical music",
+        "Tom Jerry soundtrack",
+        "Tom Jerry orchestral score",
+        "Tom Jerry cartoon chase music",
+        "classic cartoon chase music orchestral",
+        "old cartoon orchestral score",
+    ]
+
+
 def test_build_search_term_candidates_prefers_user_genre_filter():
     variants = build_search_term_candidates(
         plan(genre_seeds=["synthwave"], keyword_seeds=["night drive"]), Filters(genres=["jazz"])
