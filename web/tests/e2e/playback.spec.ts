@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
         frame.style.width = `${options.width}px`
         frame.style.height = `${options.height}px`
         element.appendChild(frame)
-        setTimeout(() => options.events.onReady(), 0)
+        Object.assign(window, { __audelleResolvePlayerReady: () => options.events.onReady() })
       }
 
       loadVideoById() { calls.load += 1; this.state = 5; this.events.onStateChange({ data: 5 }) }
@@ -55,8 +55,11 @@ test('playback can start from a click and uses a supported player size', async (
   await page.goto(sharePath())
   const play = page.getByRole('button', { name: 'Play', exact: true })
   await expect(play).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Previous track' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Next track' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Restart track' })).toBeDisabled()
 
-  await expect.poll(() => page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(1)
+  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(0)
   expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(0)
 
   const frame = page.locator('iframe[title="Mock YouTube player"]')
@@ -64,7 +67,10 @@ test('playback can start from a click and uses a supported player size', async (
   await expect(frame).toHaveCSS('height', '200px')
 
   await play.click()
+  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(0)
+  await page.evaluate(() => (window as never as { __audelleResolvePlayerReady: () => void }).__audelleResolvePlayerReady())
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(1)
   expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(1)
 })
 

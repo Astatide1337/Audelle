@@ -86,6 +86,8 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   const containerRef = useRef<HTMLDivElement>(null)
   const onEndedRef = useRef(onEnded)
   const pendingTrackResetRef = useRef(false)
+  const pendingPlayRef = useRef(false)
+  const readyRef = useRef(false)
   const currentVideoIdRef = useRef<string | null>(videoId)
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -112,7 +114,18 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
           playerVars: { controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
           events: {
             onReady: () => {
-              if (!cancelled) setIsReady(true)
+              if (cancelled) return
+              readyRef.current = true
+              setIsReady(true)
+              const currentVideoId = currentVideoIdRef.current
+              if (currentVideoId) {
+                pendingTrackResetRef.current = true
+                playerRef.current?.loadVideoById(currentVideoId)
+              }
+              if (pendingPlayRef.current) {
+                pendingPlayRef.current = false
+                playerRef.current?.playVideo?.()
+              }
             },
             onStateChange: (event) => {
               if (cancelled) return
@@ -136,6 +149,7 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
             },
             onError: () => {
               if (!cancelled) {
+                pendingPlayRef.current = false
                 setIsPlaying(false)
                 setErrorFor(currentVideoIdRef.current ?? 'player')
               }
@@ -155,11 +169,12 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   }, [])
 
   useEffect(() => {
-    if (!isReady || !videoId) return
+    if (!videoId) return
     currentVideoIdRef.current = videoId
+    if (!readyRef.current) return
     pendingTrackResetRef.current = true
     playerRef.current?.loadVideoById(videoId)
-  }, [isReady, videoId])
+  }, [videoId])
 
   // The IFrame API offers no time-update event, so poll the playback clock
   // while playing; this also drives the visualizer.
@@ -185,13 +200,22 @@ export function useYouTubeAudio(videoId: string | null, onEnded: () => void) {
   }, [isPlaying])
 
   const play = useCallback(() => {
+    if (!readyRef.current) {
+      pendingPlayRef.current = true
+      return
+    }
     playerRef.current?.playVideo?.()
   }, [])
   const pause = useCallback(() => {
+    pendingPlayRef.current = false
     playerRef.current?.pauseVideo?.()
   }, [])
   const togglePlay = useCallback(() => {
     // State in React may lag the iframe slightly; ask the player directly.
+    if (!readyRef.current) {
+      pendingPlayRef.current = true
+      return
+    }
     const state = playerRef.current?.getPlayerState?.()
     if (state === 1) {
       playerRef.current?.pauseVideo?.()
