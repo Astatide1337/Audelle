@@ -1,13 +1,24 @@
+import asyncio
 from itertools import product
+import time
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.api.schemas import FiltersIn
-from app.export_service.errors import ExportOAuthError
-from app import main as main_module
-from app.main import MAX_API_BODY_BYTES, _to_filters, app
+import app.main as main_module
+from app.main import MAX_API_BODY_BYTES, _to_filters, api_rate_limiter, app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_api_rate_limits():
+    api_rate_limiter.clear()
+    yield
+    api_rate_limiter.clear()
 
 
 def test_health():
@@ -19,6 +30,17 @@ def test_health():
     assert res.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
     assert res.headers["cache-control"] == "no-store"
     assert len(res.headers["x-request-id"]) == 32
+
+
+def test_liveness_and_readiness(monkeypatch):
+    assert client.get("/api/health/live").json() == {"status": "ok"}
+    monkeypatch.setattr(main_module, "audio_download_ready", lambda: True)
+    assert client.get("/api/health/ready").json() == {"status": "ready"}
+
+    monkeypatch.setattr(main_module, "audio_download_ready", lambda: False)
+    unavailable = client.get("/api/health/ready")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"] == "audio resolver is unavailable"
 
 
 def test_request_id_is_correlated_only_when_it_matches_safe_format():
@@ -75,16 +97,60 @@ def test_rejects_oversized_api_body_before_parsing():
     assert res.status_code == 413
 
 
-def test_export_provider_failures_are_generic_at_http_boundary(monkeypatch):
-    def fail_start():
-        raise ExportOAuthError("provider detail must not escape")
+def test_rejects_chunked_oversized_api_body_while_receiving():
+    async def chunks():
+        yield b'{"text":"'
+        yield b"x" * (MAX_API_BODY_BYTES + 1)
+        yield b'"}'
 
-    monkeypatch.setattr(main_module, "start_export", fail_start)
-    res = client.post("/api/export/youtube-music/start")
+    async def exercise():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+            return await async_client.post(
+                "/api/playlist",
+                content=chunks(),
+                headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+            )
 
-    assert res.status_code == 502
-    assert res.json()["detail"] == "YouTube Music authorization failed; please try again"
-    assert "provider detail" not in res.text
+    response = asyncio.run(exercise())
+
+    assert response.status_code == 413
+
+
+def test_playlist_rate_limit_rejects_before_generation(monkeypatch):
+    calls = 0
+
+    async def generated(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("generation should not start after the limit")
+
+    monkeypatch.setattr(main_module, "generate_playlist", generated)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/playlist",
+            "query_string": b"",
+            "headers": [(b"cf-connecting-ip", b"203.0.113.8")],
+            "client": ("10.42.0.10", 1234),
+            "server": ("audelle.astatide.com", 443),
+            "scheme": "https",
+        }
+    )
+    now = time.monotonic()
+    for _ in range(12):
+        assert api_rate_limiter.retry_after(request, now=now) is None
+
+    response = client.post(
+        "/api/playlist",
+        json={"text": "rate limited"},
+        headers={"CF-Connecting-IP": "203.0.113.8"},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"]
+    assert calls == 0
 
 
 def test_all_64_supported_filter_combinations_cross_the_api_boundary():
@@ -116,6 +182,7 @@ def test_all_64_supported_filter_combinations_cross_the_api_boundary():
     assert count == 64
 
 
+@pytest.mark.live
 def test_generates_playlist_live():
     res = client.post("/api/playlist", json={"text": "hyped up for leg day at the gym", "limit": 5})
     assert res.status_code == 200
@@ -128,11 +195,14 @@ def test_generates_playlist_live():
         assert track["watch_url"].startswith("https://music.youtube.com/watch?v=")
 
 
+@pytest.mark.live
 def test_applies_year_filter_live():
     res = client.post(
         "/api/playlist",
         json={"text": "beach vacation with friends", "filters": {"year_from": 2020, "year_to": 2024}, "limit": 5},
     )
     assert res.status_code == 200
-    for track in res.json()["tracks"]:
+    tracks = res.json()["tracks"]
+    assert tracks, "the live catalog returned no tracks, so the year constraint cannot be verified"
+    for track in tracks:
         assert 2020 <= track["year"] <= 2024

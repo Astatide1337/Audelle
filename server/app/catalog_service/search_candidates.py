@@ -65,7 +65,11 @@ def _parse_views(views: str | None) -> int:
     if not match:
         return 0
     multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[match.group(2)]
-    return min(int(float(match.group(1)) * multiplier), MAX_VIEW_COUNT)
+    try:
+        parsed = float(match.group(1))
+    except ValueError:
+        return 0
+    return min(int(parsed * multiplier), MAX_VIEW_COUNT)
 
 
 def _is_probably_real_song(result: dict) -> bool:
@@ -143,16 +147,17 @@ async def _lookup_year(album_id: str, sem: asyncio.Semaphore) -> int:
         try:
             album = await asyncio.to_thread(_client().get_album, album_id)
         except Exception:
-            _remember_year(album_id, 0)
+            # Do not make a transient provider failure permanent for this
+            # process. A later request should be allowed to recover the year.
             return 0
     if not isinstance(album, dict):
-        _remember_year(album_id, 0)
         return 0
     try:
         year = int(album.get("year") or 0)
     except (TypeError, ValueError):
         year = 0
-    _remember_year(album_id, year)
+    if year > 0:
+        _remember_year(album_id, year)
     return year
 
 

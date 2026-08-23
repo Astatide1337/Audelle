@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
+import re
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,14 +11,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.staticfiles import StaticFiles
 
 from .api.schemas import (
-    ExportCreateRequest,
-    ExportCreateResponse,
-    ExportPollRequest,
-    ExportPollResponse,
-    ExportStartResponse,
     FiltersIn,
     MatchedAnchorOut,
     MAX_PLAYLIST_SEED,
@@ -25,16 +23,20 @@ from .api.schemas import (
     QueryPlanOut,
     TrackOut,
 )
+from .audio_service.audio_download import AudioDownloadError, audio_download_ready, prepare_audio_file
+from .body_limit import ApiBodyLimitMiddleware
 from .catalog_service.errors import CatalogUnavailableError
-from .export_service import errors as export_errors
-from .export_service.youtube_music_export import create_playlist_for_user, poll_export_token, start_export
+from .mood_parser.embedder import warm_up
 from .mood_parser.parse_vibe import parse_vibe
 from .playlist_service.generate_playlist import generate_playlist
+from .rate_limit import ApiRateLimiter
 from .shared.types import Filters
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
+
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def _csv_env(name: str, default: list[str] | None = None) -> list[str]:
@@ -62,6 +64,7 @@ ALLOWED_ORIGINS = _csv_env(
 TRUSTED_HOSTS = _csv_env("AUDELLE_TRUSTED_HOSTS", ["localhost", "127.0.0.1", "[::1]", "testserver"])
 FORCE_HTTPS = _bool_env("AUDELLE_FORCE_HTTPS")
 MAX_API_BODY_BYTES = 64 * 1024
+api_rate_limiter = ApiRateLimiter()
 
 if APP_ENV == "production":
     missing_production_config = [
@@ -69,8 +72,6 @@ if APP_ENV == "production":
         for name in (
             "AUDELLE_ALLOWED_ORIGINS",
             "AUDELLE_TRUSTED_HOSTS",
-            "YTMUSIC_OAUTH_CLIENT_ID",
-            "YTMUSIC_OAUTH_CLIENT_SECRET",
         )
         if not os.getenv(name, "").strip()
     ]
@@ -84,8 +85,19 @@ if APP_ENV == "production":
         raise RuntimeError("wildcard origins and hosts are not allowed in production")
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Fail startup before receiving traffic if the embedded model cannot be
+    # loaded. Container builds pre-populate its cache; this check verifies the
+    # actual runtime artifact rather than relying on the image build alone.
+    if APP_ENV == "production":
+        await asyncio.to_thread(warm_up)
+    yield
+
+
 app = FastAPI(
     title="Audelle API",
+    lifespan=lifespan,
     docs_url=None if APP_ENV == "production" else "/docs",
     redoc_url=None if APP_ENV == "production" else "/redoc",
     openapi_url=None if APP_ENV == "production" else "/openapi.json",
@@ -100,11 +112,6 @@ if FORCE_HTTPS:
 # keeps one local worker responsive under bursts without changing normal use.
 PLAYLIST_CONCURRENCY = 4
 playlist_slots = asyncio.Semaphore(PLAYLIST_CONCURRENCY)
-EXPORT_START_CONCURRENCY = 4
-EXPORT_POLL_CONCURRENCY = 8
-export_start_slots = asyncio.Semaphore(EXPORT_START_CONCURRENCY)
-export_poll_slots = asyncio.Semaphore(EXPORT_POLL_CONCURRENCY)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -113,8 +120,6 @@ app.add_middleware(
     allow_headers=["Content-Type"],
     expose_headers=["Retry-After", "X-Request-ID"],
 )
-
-
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     request_id = request.headers.get("x-request-id", "")
@@ -132,7 +137,18 @@ async def add_security_headers(request: Request, call_next):
         except ValueError:
             oversized_body = True
     try:
-        if oversized_body:
+        retry_after = api_rate_limiter.retry_after(request)
+        if retry_after is not None:
+            response = JSONResponse(
+                status_code=429,
+                content={"detail": "too many requests; please retry shortly", "requestId": request_id},
+                headers={
+                    "X-Request-ID": request_id,
+                    "Cache-Control": "no-store",
+                    "Retry-After": str(retry_after),
+                },
+            )
+        elif oversized_body:
             response = JSONResponse(
                 status_code=413,
                 content={"detail": "request body is too large", "requestId": request_id},
@@ -154,13 +170,32 @@ async def add_security_headers(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
     response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
-    response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+    else:
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; "
+            "script-src 'self' https://www.youtube.com https://s.ytimg.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https://*.googleusercontent.com https://i.ytimg.com; "
+            "media-src 'self'; "
+            "connect-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+        )
     response.headers.setdefault("X-Request-ID", request_id)
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
     if APP_ENV == "production" and request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
+
+
+# Starlette inserts newly added middleware at the outside of the stack. Keep
+# the streaming body limiter outside BaseHTTPMiddleware so an over-limit body
+# is converted to a deterministic 413 before request parsing can normalize it.
+app.add_middleware(ApiBodyLimitMiddleware, max_bytes=MAX_API_BODY_BYTES)
 
 
 def _to_filters(f: FiltersIn) -> Filters:
@@ -171,6 +206,18 @@ def _to_filters(f: FiltersIn) -> Filters:
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/health/live")
+async def health_live():
+    return {"status": "ok"}
+
+
+@app.get("/api/health/ready")
+async def health_ready():
+    if not audio_download_ready():
+        raise HTTPException(status_code=503, detail="audio resolver is unavailable")
+    return {"status": "ready"}
 
 
 @app.post("/api/playlist", response_model=PlaylistResponse)
@@ -205,62 +252,47 @@ async def create_playlist(req: PlaylistRequest) -> PlaylistResponse:
     )
 
 
-@app.post("/api/export/youtube-music/start", response_model=ExportStartResponse)
-async def export_start() -> ExportStartResponse:
+@app.get("/api/audio/{video_id}")
+async def download_audio(video_id: str):
+    """Stream the best available audio track for one generated video ID.
+
+    The caller may only pass a bare YouTube video ID; stream URLs are resolved
+    server-side and never accepted as input. Bytes are proxied straight through
+    with no server-side storage.
+    """
+    if VIDEO_ID_RE.fullmatch(video_id) is None:
+        raise HTTPException(status_code=422, detail="invalid video id")
+
     try:
-        await asyncio.wait_for(export_start_slots.acquire(), timeout=0.05)
-    except TimeoutError as exc:
-        raise HTTPException(status_code=429, detail="too many export authorizations are in progress") from exc
-    try:
-        start = await asyncio.to_thread(start_export)
-    except export_errors.ExportCapacityReached as exc:
-        raise HTTPException(status_code=429, detail="too many export authorizations are in progress") from exc
-    except export_errors.ExportOAuthError as exc:
-        raise HTTPException(status_code=502, detail="YouTube Music authorization failed; please try again") from exc
-    finally:
-        export_start_slots.release()
-    return ExportStartResponse(
-        session_id=start.session_id,
-        user_code=start.user_code,
-        verification_url=start.verification_url,
-        expires_in=start.expires_in,
-        interval=start.interval,
+        audio_path = await prepare_audio_file(video_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return FileResponse(
+        audio_path,
+        media_type="audio/mpeg",
+        filename=f"audelle-{video_id}.mp3",
+        content_disposition_type="inline",
+        headers={"Cache-Control": "private, max-age=21600"},
     )
 
 
-@app.post("/api/export/youtube-music/poll", response_model=ExportPollResponse)
-async def export_poll(req: ExportPollRequest) -> ExportPollResponse:
+@app.post("/api/audio/{video_id}/prepare", status_code=204)
+async def prepare_audio(video_id: str):
+    """Prepare a finite MP3 before the browser needs to start playback."""
+    if VIDEO_ID_RE.fullmatch(video_id) is None:
+        raise HTTPException(status_code=422, detail="invalid video id")
+
     try:
-        await asyncio.wait_for(export_poll_slots.acquire(), timeout=0.05)
-    except TimeoutError as exc:
-        raise HTTPException(status_code=429, detail="too many export authorizations are in progress") from exc
-    try:
-        authorized_session_id = await asyncio.to_thread(poll_export_token, req.session_id)
-        return ExportPollResponse(status="complete", authorized_session_id=authorized_session_id)
-    except export_errors.ExportPending:
-        return ExportPollResponse(status="pending")
-    except export_errors.ExportSessionNotFound as exc:
-        raise HTTPException(status_code=404, detail="export session not found or already used") from exc
-    except export_errors.ExportExpired as exc:
-        raise HTTPException(status_code=410, detail="the code expired before it was used, start again") from exc
-    except export_errors.ExportDenied as exc:
-        raise HTTPException(status_code=403, detail="authorization was denied") from exc
-    except export_errors.ExportOAuthError as exc:
-        raise HTTPException(status_code=502, detail="YouTube Music authorization failed; please start again") from exc
-    except export_errors.ExportCapacityReached as exc:
-        raise HTTPException(status_code=429, detail="too many export authorizations are in progress") from exc
-    finally:
-        export_poll_slots.release()
+        await prepare_audio_file(video_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return Response(status_code=204)
 
 
-@app.post("/api/export/youtube-music/create", response_model=ExportCreateResponse)
-async def export_create(req: ExportCreateRequest) -> ExportCreateResponse:
-    try:
-        external_url = await asyncio.to_thread(
-            create_playlist_for_user, req.authorized_session_id, req.name, req.description, req.track_ids
-        )
-        return ExportCreateResponse(external_url=external_url)
-    except export_errors.ExportSessionNotFound as exc:
-        raise HTTPException(status_code=404, detail="authorization expired or already used, please export again") from exc
-    except export_errors.ExportProviderError as exc:
-        raise HTTPException(status_code=502, detail="YouTube playlist export failed; please try again") from exc
+WEB_DIST = Path(os.getenv("AUDELLE_WEB_DIST", Path(__file__).parents[2] / "web" / "dist"))
+if WEB_DIST.is_dir():
+    # Mounted after API routes so same-origin production serves the Vite bundle
+    # without weakening or shadowing the API boundary.
+    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

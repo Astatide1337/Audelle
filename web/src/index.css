@@ -367,6 +367,28 @@ html::-webkit-scrollbar-thumb:hover {
   animation: shade-drift 28s ease-in-out infinite alternate;
 }
 
+.playback-controls .ui-button {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.025);
+}
+
+.playback-controls .ui-button:hover:not(:disabled),
+.playback-controls .ui-button:focus-visible {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.playback-controls .ui-button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.playback-controls .ui-button svg {
+  transition: transform var(--motion-fast) var(--ease-emphasis);
+}
+
+.playback-controls .ui-button:hover:not(:disabled) svg {
+  transform: scale(1.08);
+}
+
 @keyframes ember-drift {
   0% { opacity: 0.42; transform: translate3d(4vw, -2vh, 0) scale(0.94) rotate(-4deg); }
   12% { opacity: 0.62; transform: translate3d(-26vw, 18vh, 0) scale(1.04) rotate(6deg); }
@@ -389,6 +411,11 @@ html::-webkit-scrollbar-thumb:hover {
   .ambient-glow__ember,
   .ambient-glow__shade {
     animation: none;
+  }
+
+  .playback-controls .ui-button,
+  .playback-controls .ui-button svg {
+    transition-duration: 0.01ms;
   }
 
 }
@@ -479,6 +506,93 @@ html::-webkit-scrollbar-thumb:hover {
 
 .audio-visualizer.is-playing .audio-visualizer__bar {
   opacity: 1;
+}
+
+/* Seek bar for the transport controls. */
+.ui-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 0.25rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      var(--color-ember) var(--progress, 0%),
+      var(--color-line) var(--progress, 0%)
+    );
+  cursor: pointer;
+}
+
+.ui-range:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-ember), 0 0 0 4px var(--color-canvas);
+}
+
+.ui-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 0;
+  transition: transform var(--motion-fast) var(--ease-emphasis), background-color var(--motion-fast) var(--ease-standard);
+}
+
+.ui-range:hover::-webkit-slider-thumb,
+.ui-range:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  background: var(--color-ember);
+}
+
+.ui-range::-moz-range-thumb {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 0;
+  transition: transform var(--motion-fast) var(--ease-emphasis), background-color var(--motion-fast) var(--ease-standard);
+}
+
+.ui-range:hover::-moz-range-thumb,
+.ui-range:active::-moz-range-thumb {
+  transform: scale(1.15);
+  background: var(--color-ember);
+}
+
+.ui-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.download-progress-track {
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+
+.download-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-ember);
+  transition: width var(--motion-base) var(--ease-standard);
+}
+
+.download-toast {
+  border: 1px solid color-mix(in srgb, var(--color-line) 82%, var(--color-ink));
+  border-radius: var(--panel-radius);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(14px);
+}
+
+.status-toast {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--color-surface-raised) 96%, transparent);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.38), inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(16px);
 }
 
 @media (prefers-reduced-motion: reduce) {

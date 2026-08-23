@@ -1,0 +1,32 @@
+[project]
+name = "audelle-server"
+version = "0.1.0"
+description = "Audelle API — turn a vibe into a YouTube playlist"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.141.1",
+    # starlette middleware is imported directly in app.main
+    "starlette==1.6.0",
+    # pydantic models are declared directly in app.api.schemas
+    "pydantic==2.13.4",
+    "uvicorn[standard]==0.52.4",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.3",
+    "fastembed==0.8.0",
+    # numpy is imported directly by the mood parser and embedder
+    "numpy==2.4.6",
+    # unauthenticated YouTube Music search only; no OAuth use anywhere
+    "ytmusicapi==1.12.2",
+    # resolves best-available audio streams for playlist downloads (CLI)
+    "yt-dlp==2026.8.19",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[tool.uv]
+# The API is run from source; it is not built or installed as a package.
+package = false

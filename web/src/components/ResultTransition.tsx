@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
-import { useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 
 interface ResultTransitionProps {
   /** Reveal only after the playlist is mounted and its player is ready. */
@@ -85,7 +85,25 @@ export function ResultTransition({ isReady, onCovered, onComplete }: ResultTrans
       </svg>
       {!isRevealing && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <p className="label-meta text-canvas">Creating playlist</p>
+          <p className="label-meta flex text-canvas" aria-label="Creating playlist">
+            {Array.from('Creating playlist').map((character, index) => (
+              <motion.span
+                key={`${character}-${index}`}
+                aria-hidden="true"
+                className={character === ' ' ? 'w-[0.45em]' : undefined}
+                animate={prefersReducedMotion ? undefined : { y: [0, -8, 0, 0] }}
+                transition={prefersReducedMotion ? undefined : {
+                  duration: 4,
+                  delay: index * 0.055,
+                  ease: [0.22, 1, 0.36, 1],
+                  times: [0, 0.12, 0.25, 1],
+                  repeat: Infinity,
+                }}
+              >
+                {character === ' ' ? '\u00a0' : character}
+              </motion.span>
+            ))}
+          </p>
         </div>
       )}
     </div>
