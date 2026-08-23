@@ -95,6 +95,81 @@ def test_seeded_relevance_exploration_does_not_drop_into_low_match_results():
     assert all(item.query_match >= 2 for item in selected)
 
 
+def test_explicit_selection_blends_style_variants_and_suppresses_theme_copies():
+    tracks = [
+        track(
+            id="intro-geek",
+            name='Tom And Jerry Main Theme (From "Tom And Jerry")',
+            artists=["Geek Music"],
+            search_rank=1,
+            query_match=3,
+            search_variant=0,
+            search_kind="exact",
+        ),
+        track(
+            id="intro-kids",
+            name='Tom And Jerry Main Theme (From "Tom And Jerry")',
+            artists=["Just Kids"],
+            search_rank=2,
+            query_match=3,
+            search_variant=0,
+            search_kind="exact",
+        ),
+        track(
+            id="score",
+            name="Tom and Jerry Chase Around",
+            artists=["Cartoon Score Orchestra"],
+            search_rank=31,
+            query_match=2,
+            search_variant=1,
+            search_kind="reference",
+        ),
+        track(
+            id="cartoon-a",
+            name="Classic Cartoon Chase",
+            artists=["Animation Orchestra"],
+            search_rank=121,
+            query_match=0,
+            search_variant=4,
+            search_kind="style",
+        ),
+        track(
+            id="cartoon-b",
+            name="Old Cartoon Overture",
+            artists=["Vintage Orchestra"],
+            search_rank=151,
+            query_match=0,
+            search_variant=5,
+            search_kind="style",
+        ),
+        track(
+            id="cartoon-c",
+            name="The Chase Cue",
+            artists=["Animation Orchestra"],
+            search_rank=152,
+            query_match=0,
+            search_variant=5,
+            search_kind="style",
+        ),
+        track(
+            id="cartoon-d",
+            name="Golden Age Cartoon Score",
+            artists=["Golden Age Orchestra"],
+            search_rank=181,
+            query_match=0,
+            search_variant=6,
+            search_kind="style",
+        ),
+    ]
+
+    selected = select_seeded_tracks(tracks, limit=5, seed=123)
+
+    assert len(selected) == 5
+    assert sum(item.search_variant == 0 for item in selected) <= 1
+    assert sum("Main Theme" in item.name for item in selected) == 0
+    assert any(item.search_kind == "style" for item in selected)
+
+
 @pytest.mark.asyncio
 @pytest.mark.live
 async def test_generate_playlist_live_respects_limit_and_filters_and_ranks_by_popularity():

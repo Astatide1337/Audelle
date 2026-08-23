@@ -14,7 +14,7 @@ SEARCH_LIMIT = 30
 # Keep enough candidates from each query variant for seeded exploration. The
 # final playlist is still capped by the request limit, so this only affects
 # which songs are eligible for selection.
-CANDIDATE_POOL_LIMIT = 120
+CANDIDATE_POOL_LIMIT = 240
 CANDIDATE_CACHE_TTL_SECONDS = 5 * 60
 CANDIDATE_CACHE_MAX_ENTRIES = 128
 # YouTube Music search returns plenty of hour-long "mix"/compilation videos
@@ -30,6 +30,16 @@ _SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _SEARCH_STOP_WORDS = {
     "a", "an", "and", "by", "for", "from", "in", "me", "of", "on", "the", "to", "with",
 }
+_QUERY_FILLER_WORDS = _SEARCH_STOP_WORDS | {
+    "music", "musics", "song", "songs", "track", "tracks", "playlist", "playlists",
+    "listen", "listening", "please", "give", "make", "create", "some",
+}
+_STYLE_WORDS = {
+    "ambient", "animated", "animation", "big", "cartoon", "cartoons", "chase", "cinematic",
+    "classic", "classical", "comedy", "comic", "film", "folk", "funny", "instrumental",
+    "jazz", "lofi", "lounge", "old", "orchestral", "piano", "score", "soundtrack", "swing",
+    "symphonic", "vintage", "western",
+}
 
 _year_cache: dict[str, int] = {}
 _candidate_cache: dict[tuple[str, ...], tuple[float, list[TrackCandidate]]] = {}
@@ -40,27 +50,81 @@ def _client() -> YTMusic:
     return YTMusic()  # unauthenticated — search/browse are public, no login needed
 
 
-def build_search_term_candidates(plan: QueryPlan, filters: Filters) -> list[str]:
+def _build_search_variants(plan: QueryPlan, filters: Filters) -> list[tuple[str, str]]:
     """
-    Progressively broader query variants, same fallback strategy as the iTunes
-    version: full term first, then genre-led, then just the strongest keyword.
+    Build a small query portfolio rather than treating a named reference as a
+    literal catalog lookup. The exact text remains first, followed by reference
+    soundtrack/score queries and style-only queries when the user supplied
+    explicit media or musical context (for example, ``old classical``). This
+    lets a request for "Tom and Jerry" discover adjacent cartoon-score music
+    without making every artist query look like a film-score request.
     """
     genre = (filters.genres[0] if filters.genres else None) or (plan.genre_seeds[0] if plan.genre_seeds else None)
     top_keywords = plan.keyword_seeds[:2]
 
-    variants = [
-        plan.search_text,
-        " ".join(x for x in [*top_keywords, genre, filters.language] if x),
-        genre,
-        " ".join(top_keywords),
-        plan.keyword_seeds[0] if plan.keyword_seeds else None,
+    variants: list[tuple[str | None, str]] = [(plan.search_text, "exact")]
+    query_words = re.findall(r"[A-Za-z0-9]+", plan.search_text)
+    raw_tokens = {token.casefold() for token in query_words}
+    reference_words = [
+        token for token in query_words
+        if token.casefold() not in _QUERY_FILLER_WORDS and token.casefold() not in _STYLE_WORDS
     ]
+    reference = " ".join(reference_words)
+    has_style_context = bool(raw_tokens & _STYLE_WORDS) or bool(filters.genres)
+    classical_context = bool(raw_tokens & {"classical", "orchestral", "symphonic", "instrumental"})
+    cartoon_context = bool(
+        raw_tokens & {"cartoon", "cartoons", "animated", "animation", "comic", "comedy", "funny", "chase"}
+    )
+    vintage_context = bool(raw_tokens & {"old", "classic", "vintage"})
+    jazz_context = bool(raw_tokens & {"jazz", "swing"})
 
-    seen: list[str] = []
-    for v in variants:
-        if v and v.strip() and v.strip() not in seen:
-            seen.append(v.strip())
-    return seen
+    if reference and has_style_context:
+        # These reference-led searches preserve the named subject while
+        # widening the requested musical role beyond one famous theme.
+        variants.append((f"{reference} soundtrack", "reference"))
+        if classical_context:
+            variants.append((f"{reference} orchestral score", "reference"))
+        if cartoon_context or vintage_context:
+            variants.append((f"{reference} cartoon chase music", "reference"))
+        if jazz_context:
+            variants.append((f"{reference} jazz swing", "reference"))
+
+        # Style-only searches are deliberately explicit: they are the source
+        # of adjacent scores and cues, not unrelated popular songs.
+        if classical_context and (cartoon_context or vintage_context):
+            variants.extend([
+                ("classic cartoon chase music orchestral", "style"),
+                ("old cartoon orchestral score", "style"),
+                ("Scott Bradley Carl Stalling cartoon score", "style"),
+            ])
+        elif cartoon_context:
+            variants.append(("cartoon chase music soundtrack", "style"))
+        if jazz_context and (cartoon_context or vintage_context):
+            variants.append(("cartoon soundtrack jazz swing", "style"))
+
+    fallback_variants = [
+        (" ".join(x for x in [*top_keywords, genre, filters.language] if x), "fallback"),
+        (genre, "fallback"),
+        (" ".join(top_keywords), "fallback"),
+        (plan.keyword_seeds[0] if plan.keyword_seeds else None, "fallback"),
+    ]
+    # The style portfolio already includes its own broadening. Keep one
+    # semantic fallback for reference-led requests so a burst of redundant
+    # generic searches does not crowd the provider or dilute the pool.
+    variants.extend(fallback_variants[:1] if reference and has_style_context else fallback_variants)
+
+    seen: set[str] = set()
+    result: list[tuple[str, str]] = []
+    for value, kind in variants:
+        if value and value.strip() and value.strip() not in seen:
+            normalized = value.strip()
+            seen.add(normalized)
+            result.append((normalized, kind))
+    return result
+
+
+def build_search_term_candidates(plan: QueryPlan, filters: Filters) -> list[str]:
+    return [term for term, _kind in _build_search_variants(plan, filters)]
 
 
 def _parse_views(views: str | None) -> int:
@@ -110,18 +174,20 @@ def merge_search_results(result_sets: list[list[dict]], pool_limit: int = CANDID
     """
     merged: list[dict] = []
     seen_ids: set[str] = set()
-    for variant_index, results in enumerate(result_sets):
+    for fallback_variant_index, results in enumerate(result_sets):
         for result_index, result in enumerate(results):
             video_id = result.get("videoId")
             if not video_id or video_id in seen_ids:
                 continue
             seen_ids.add(video_id)
+            variant_index = int(result.get("_audelle_search_variant", fallback_variant_index))
             # Keep metadata out of the provider object and use a one-based rank
             # so an exact-query result remains distinguishable from an unset
             # rank used by callers that build a QueryPlan manually.
             merged.append({
                 **result,
                 "_audelle_search_rank": variant_index * SEARCH_LIMIT + result_index + 1,
+                "_audelle_search_variant": variant_index,
             })
             if len(merged) >= pool_limit:
                 return merged
@@ -229,7 +295,8 @@ async def search_candidates(plan: QueryPlan, filters: Filters) -> list[TrackCand
     A short bounded snapshot cache keeps explicit seeds replayable while the
     third-party catalog is changing underneath us.
     """
-    variants = build_search_term_candidates(plan, filters)
+    variant_specs = _build_search_variants(plan, filters)
+    variants = [term for term, _kind in variant_specs]
 
     if not variants:
         return []
@@ -241,7 +308,7 @@ async def search_candidates(plan: QueryPlan, filters: Filters) -> list[TrackCand
     search_results = await asyncio.gather(*(_search_once(term) for term in variants), return_exceptions=True)
     valid_sets: list[list[dict]] = []
     errors: list[Exception] = []
-    for result in search_results:
+    for variant_index, result in enumerate(search_results):
         if isinstance(result, Exception):
             errors.append(result)
             continue
@@ -249,7 +316,12 @@ async def search_candidates(plan: QueryPlan, filters: Filters) -> list[TrackCand
             errors.append(CatalogUnavailableError("YouTube Music returned an invalid search response"))
             continue
         valid_sets.append([
-            r for r in result
+            {
+                **r,
+                "_audelle_search_variant": variant_index,
+                "_audelle_search_kind": variant_specs[variant_index][1],
+            }
+            for r in result
             if isinstance(r, dict) and _is_probably_real_song(r)
         ][:SEARCH_LIMIT])
 
@@ -293,6 +365,8 @@ async def search_candidates(plan: QueryPlan, filters: Filters) -> list[TrackCand
                 album_art=_thumbnail_url(r),
                 search_rank=int(r.get("_audelle_search_rank") or 0) if plan.search_text else 0,
                 query_match=_query_match_score(r, plan.search_text) if plan.search_text else 0,
+                search_variant=int(r.get("_audelle_search_variant") or 0) if plan.search_text else -1,
+                search_kind=str(r.get("_audelle_search_kind") or "") if plan.search_text else "",
             )
         )
     _cache_candidates(cache_key, candidates)
