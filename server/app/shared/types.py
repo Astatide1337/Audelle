@@ -22,3 +22,8 @@ class TrackCandidate:
     popularity: int
     watch_url: str
     album_art: str | None
+    # Internal catalog relevance metadata; these fields are not part of the
+    # public API response. A provider's ordered search result is stronger than
+    # raw view count for explicit title/artist requests.
+    search_rank: int = 0
+    query_match: int = 0

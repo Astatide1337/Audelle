@@ -69,6 +69,32 @@ def test_seeded_selection_is_reproducible_but_explores_beyond_the_core():
     assert [item.popularity for item in first] == sorted((item.popularity for item in first), reverse=True)
 
 
+def test_seeded_selection_keeps_explicit_query_matches_ahead_of_popularity():
+    tracks = [
+        track(id="generic", name="Young and Beautiful", popularity=900_000_000, search_rank=1, query_match=0),
+        track(id="specific", name="Tom and Jerry Main Theme", popularity=10_000, search_rank=2, query_match=2),
+    ]
+
+    selected = select_seeded_tracks(tracks, limit=1, seed=123)
+
+    assert [item.id for item in selected] == ["specific"]
+
+
+def test_seeded_relevance_exploration_does_not_drop_into_low_match_results():
+    tracks = [
+        track(id="exact-a", name="Tom and Jerry Theme A", search_rank=1, query_match=3),
+        track(id="exact-b", name="Tom and Jerry Theme B", search_rank=2, query_match=3),
+        track(id="match-a", name="Tom and Jerry Theme C", search_rank=3, query_match=2),
+        track(id="match-b", name="Tom and Jerry Theme D", search_rank=4, query_match=2),
+        track(id="generic", name="Popular Classical Music", popularity=900_000_000, search_rank=5, query_match=0),
+    ]
+
+    selected = select_seeded_tracks(tracks, limit=4, seed=456)
+
+    assert len(selected) == 4
+    assert all(item.query_match >= 2 for item in selected)
+
+
 @pytest.mark.asyncio
 @pytest.mark.live
 async def test_generate_playlist_live_respects_limit_and_filters_and_ranks_by_popularity():
