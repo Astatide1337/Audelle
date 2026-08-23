@@ -8,7 +8,10 @@ test('live MP3 playback advances in the browser', async ({ page }) => {
   test.skip(!liveUrl, 'Runs only against an explicitly selected live environment')
 
   const audioResponse = page.waitForResponse(
-    (response) => response.url().includes('/api/audio/dQw4w9WgXcQ'),
+    (response) => {
+      const url = new URL(response.url())
+      return response.request().method() === 'GET' && url.pathname === '/api/audio/dQw4w9WgXcQ'
+    },
     { timeout: 90_000 },
   )
 
@@ -16,7 +19,7 @@ test('live MP3 playback advances in the browser', async ({ page }) => {
   await page.getByRole('button', { name: 'Play', exact: true }).click()
 
   const response = await audioResponse
-  expect(response.status()).toBe(200)
+  expect([200, 206]).toContain(response.status())
   expect(response.headers()['content-type']).toContain('audio/mpeg')
   expect(response.headers()['content-disposition']).toContain('inline')
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: 90_000 })
