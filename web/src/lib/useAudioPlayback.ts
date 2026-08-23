@@ -15,7 +15,7 @@ export function useAudioPlayback(videoId: string | null, onEnded: () => void) {
   const [playbackTime, setPlaybackTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [errorFor, setErrorFor] = useState<string | null>(null)
-  const [readyFor, setReadyFor] = useState<string | null>(null)
+  const [sourceFor, setSourceFor] = useState<string | null>(null)
 
   useEffect(() => {
     onEndedRef.current = onEnded
@@ -56,40 +56,24 @@ export function useAudioPlayback(videoId: string | null, onEnded: () => void) {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !videoId) return
-    const controller = new AbortController()
-    let objectUrl: string | null = null
     shouldContinueRef.current = false
     audio.pause()
-    audio.removeAttribute('src')
-    audio.load()
     setPlaybackTime(0)
     setDuration(0)
-    setReadyFor(null)
     setErrorFor(null)
 
-    void fetch(`/api/audio/${encodeURIComponent(videoId)}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok || !response.headers.get('content-type')?.toLowerCase().startsWith('audio/mpeg')) {
-          throw new Error('audio response is unavailable')
-        }
-        return response.blob()
-      })
-      .then((blob) => {
-        if (controller.signal.aborted) return
-        objectUrl = URL.createObjectURL(blob)
-        audio.dataset.videoId = videoId
-        audio.src = objectUrl
-        audio.load()
-        setReadyFor(videoId)
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        setErrorFor(videoId)
-      })
+    // Assign the same-origin URL before the user gesture. Safari can then
+    // start its network-backed media request from the synchronous tap while
+    // retaining user activation for play().
+    audio.dataset.videoId = videoId
+    audio.src = `/api/audio/${encodeURIComponent(videoId)}`
+    audio.load()
+    setSourceFor(videoId)
 
     return () => {
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
     }
   }, [videoId])
 
@@ -98,6 +82,7 @@ export function useAudioPlayback(videoId: string | null, onEnded: () => void) {
     if (!audio || !videoId) return
     shouldContinueRef.current = true
     setErrorFor(null)
+    if (audio.error) audio.load()
     void audio.play().catch(() => setErrorFor(videoId))
   }, [videoId])
 
@@ -112,6 +97,7 @@ export function useAudioPlayback(videoId: string | null, onEnded: () => void) {
     if (audio.paused) {
       shouldContinueRef.current = true
       setErrorFor(null)
+      if (audio.error) audio.load()
       void audio.play().catch(() => setErrorFor(videoId))
     } else {
       shouldContinueRef.current = false
@@ -133,10 +119,13 @@ export function useAudioPlayback(videoId: string | null, onEnded: () => void) {
     audio.currentTime = 0
     shouldContinueRef.current = true
     setPlaybackTime(0)
+    if (audio.error) audio.load()
     void audio.play().catch(() => setErrorFor(videoId))
   }, [videoId])
 
   const hasError = errorFor === 'player' || errorFor === videoId
-  const isReady = readyFor === videoId
+  // Network readiness is reported by media events, not a preflight fetch/blob
+  // load which can lose Safari's user-activation allowance.
+  const isReady = sourceFor === videoId
   return { isReady, isPlaying, playbackTime, duration, hasError, play, pause, togglePlay, seek, restart }
 }

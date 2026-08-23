@@ -10,9 +10,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from starlette.background import BackgroundTask
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from .api.schemas import (
@@ -24,7 +23,7 @@ from .api.schemas import (
     QueryPlanOut,
     TrackOut,
 )
-from .audio_service.audio_download import AudioDownloadError, audio_download_ready, stream_audio
+from .audio_service.audio_download import AudioDownloadError, audio_download_ready, prepare_audio_file
 from .catalog_service.errors import CatalogUnavailableError
 from .mood_parser.embedder import warm_up
 from .mood_parser.parse_vibe import parse_vibe
@@ -110,11 +109,6 @@ if FORCE_HTTPS:
 # keeps one local worker responsive under bursts without changing normal use.
 PLAYLIST_CONCURRENCY = 4
 playlist_slots = asyncio.Semaphore(PLAYLIST_CONCURRENCY)
-# Audio downloads proxy large upstream responses; a tighter bound keeps the
-# process from fanning out into unbounded upstream connections.
-AUDIO_CONCURRENCY = 4
-audio_slots = asyncio.Semaphore(AUDIO_CONCURRENCY)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -175,7 +169,7 @@ async def add_security_headers(request: Request, call_next):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data: https://*.googleusercontent.com https://i.ytimg.com; "
-            "media-src 'self' blob:; "
+            "media-src 'self'; "
             "connect-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com",
         )
     response.headers.setdefault("X-Request-ID", request_id)
@@ -252,24 +246,17 @@ async def download_audio(video_id: str):
         raise HTTPException(status_code=422, detail="invalid video id")
 
     try:
-        await asyncio.wait_for(audio_slots.acquire(), timeout=0.05)
-    except TimeoutError as exc:
-        raise HTTPException(status_code=429, detail="too many downloads are in progress; please retry shortly") from exc
-
-    try:
-        response = await stream_audio(video_id)
+        audio_path = await prepare_audio_file(video_id)
     except AudioDownloadError as exc:
-        audio_slots.release()
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    except Exception:
-        audio_slots.release()
-        raise
 
-    # StreamingResponse sends its background task after the iterator completes
-    # or the client disconnects. Keep the slot for the whole upstream transfer,
-    # not merely for URL resolution.
-    response.background = BackgroundTask(audio_slots.release)
-    return response
+    return FileResponse(
+        audio_path,
+        media_type="audio/mpeg",
+        filename=f"audelle-{video_id}.mp3",
+        content_disposition_type="inline",
+        headers={"Cache-Control": "private, max-age=21600"},
+    )
 
 
 WEB_DIST = Path(os.getenv("AUDELLE_WEB_DIST", Path(__file__).parents[2] / "web" / "dist"))

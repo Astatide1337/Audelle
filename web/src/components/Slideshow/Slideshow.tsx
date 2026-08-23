@@ -314,7 +314,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
 
   if (!track) return null
 
-  const audioUnavailable = hasAudioError
   const seekValue = Math.min(playbackTime, duration > 0 ? duration : playbackTime)
   const progressPercent =
     downloadState.stage === 'running' && downloadState.totalBytes
@@ -404,21 +403,16 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
         </p>
 
         <AudioVisualizer isPlaying={isPlaying} playbackTime={playbackTime} trackId={track.id} />
-        {!isReady && !hasAudioError && (
-          <p className="max-w-sm text-xs text-ink-dim" role="status">
-            Preparing high-quality audio…
-          </p>
-        )}
         {hasAudioError && (
           <p className="max-w-sm text-xs text-ink-dim" role="status">
-            Audio preview is unavailable, but you can still browse and download the playlist.
+            Audio playback failed. Tap Play to retry, or browse and download the playlist.
           </p>
         )}
 
         {/* Transport controls */}
         <div role="group" aria-label="Playback controls" className="playback-controls flex w-full max-w-xl flex-col items-center gap-2">
           <div className="flex items-center gap-2">
-            <Button type="button" onClick={restart} disabled={audioUnavailable || !isReady} aria-label="Restart track" variant="surface" size="icon-sm" className="text-ink">
+            <Button type="button" onClick={restart} disabled={!isReady} aria-label="Restart track" variant="surface" size="icon-sm" className="text-ink">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
                 <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M3 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
@@ -430,7 +424,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
                 <path d="M18 6.6v10.8a.5.5 0 0 1-.78.42l-7.44-5.4a.5.5 0 0 1 0-.84l7.44-5.4a.5.5 0 0 1 .78.42Z" fill="currentColor" stroke="none" />
               </svg>
             </Button>
-            <Button type="button" onClick={togglePlay} disabled={audioUnavailable || !isReady} aria-label={isPlaying ? 'Pause' : 'Play'} size="icon" className="text-canvas">
+            <Button type="button" onClick={togglePlay} disabled={!isReady} aria-label={isPlaying ? 'Pause' : 'Play'} size="icon" className="text-canvas">
               {isPlaying ? (
                 <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <rect x="6.5" y="5" width="3.6" height="14" rx="1" />
@@ -481,7 +475,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
               step={1}
               value={Math.floor(seekValue)}
               onChange={(e) => seek(Number(e.target.value))}
-              disabled={audioUnavailable || !isReady || duration <= 0}
+              disabled={!isReady || duration <= 0}
               aria-label="Seek within track"
               className="ui-range min-w-0 flex-1"
               style={{ '--progress': `${duration > 0 ? (seekValue / duration) * 100 : 0}%` } as React.CSSProperties}

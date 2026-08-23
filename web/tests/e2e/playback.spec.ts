@@ -22,12 +22,15 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const calls = { load: 0, play: 0, pause: 0 }
     let paused = true
-    Object.assign(window, { __audelleAudioCalls: calls })
+    Object.assign(window, { __audelleAudioCalls: calls, __audelleAudioElement: null })
     let mediaSource = ''
     Object.defineProperty(HTMLMediaElement.prototype, 'src', {
       configurable: true,
       get: () => mediaSource,
-      set: (value: string) => { mediaSource = value },
+      set: function (value: string) {
+        mediaSource = value
+        Object.assign(window, { __audelleAudioElement: this })
+      },
     })
     Object.defineProperty(HTMLMediaElement.prototype, 'paused', { configurable: true, get: () => paused })
     Object.defineProperty(HTMLMediaElement.prototype, 'duration', { configurable: true, get: () => 213 })
@@ -56,6 +59,24 @@ test('native playback starts directly from the Play click', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'Previous track' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Next track' })).toBeEnabled()
   expect(await page.evaluate(() => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play)).toBe(0)
+
+  await play.click()
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play)).toBe(1)
+  expect(await page.evaluate(() => (window as never as { __audelleAudioElement: HTMLMediaElement }).__audelleAudioElement.src)).toContain('/api/audio/dQw4w9WgXcQ')
+})
+
+test('a media error leaves Play enabled for a user retry', async ({ page }) => {
+  await page.goto(sharePath())
+  const play = page.getByRole('button', { name: 'Play', exact: true })
+  await expect(play).toBeEnabled()
+
+  await page.evaluate(() => {
+    const audio = (window as never as { __audelleAudioElement: HTMLMediaElement }).__audelleAudioElement
+    audio.dispatchEvent(new Event('error'))
+  })
+  await expect(page.getByRole('status')).toContainText('Tap Play to retry')
+  await expect(play).toBeEnabled()
 
   await play.click()
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()

@@ -1,22 +1,24 @@
-"""Stateless audio download support for generated playlists.
+"""Audio preparation support for generated playlists.
 
 Audelle never accepts stream URLs from clients. A request carries only a bare
 YouTube video ID; the best available audio stream is resolved here with yt-dlp,
-transcoded to a high-quality MP3 stream, and proxied to the browser. Nothing is
-written to disk and nothing is cached between requests.
+transcoded to a high-quality MP3 file in bounded ephemeral storage. The finite
+file can then satisfy Safari's HTTP byte-range requests correctly.
 """
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from fastapi.responses import StreamingResponse
 
 # Canonical YouTube video IDs are exactly eleven URL-safe characters.
 VIDEO_ID_PATTERN = r"^[A-Za-z0-9_-]{11}$"
@@ -26,7 +28,14 @@ STREAM_CONNECT_TIMEOUT_SECONDS = 15.0
 STREAM_READ_TIMEOUT_SECONDS = 30.0
 # Safety cap for one track; typical bestaudio files are well under 20 MB.
 MAX_AUDIO_BYTES = 256 * 1024 * 1024
+MAX_MP3_BYTES = 128 * 1024 * 1024
 MP3_BITRATE = "320k"
+AUDIO_CACHE_DIR = Path(os.getenv("AUDELLE_AUDIO_CACHE_DIR", "/tmp/audelle-audio"))
+AUDIO_CACHE_TTL_SECONDS = 6 * 60 * 60
+AUDIO_CACHE_MAX_BYTES = 96 * 1024 * 1024
+AUDIO_PREPARATION_CONCURRENCY = 4
+_CACHE_LOCKS: dict[str, asyncio.Lock] = {}
+_PREPARATION_SLOTS = asyncio.Semaphore(AUDIO_PREPARATION_CONCURRENCY)
 
 
 class AudioDownloadError(Exception):
@@ -250,7 +259,7 @@ async def _mp3_byte_stream(resolved: ResolvedAudio, ffmpeg: str):
     try:
         while chunk := await process.stdout.read(64 * 1024):
             sent += len(chunk)
-            if sent > MAX_AUDIO_BYTES:
+            if sent > MAX_MP3_BYTES:
                 raise AudioDownloadError(502, "the MP3 output exceeded the size limit")
             yield chunk
         await producer
@@ -277,20 +286,65 @@ async def _mp3_byte_stream(resolved: ResolvedAudio, ffmpeg: str):
         await asyncio.gather(producer, stderr_reader, return_exceptions=True)
 
 
-async def stream_audio(video_id: str) -> StreamingResponse:
-    """Transcode the resolved audio to MP3 without buffering it or using disk."""
-    resolved = await _resolve_async(video_id)
-    ffmpeg = _require_ffmpeg()
-
-    filename = f"audelle-{video_id}.mp3"
-    return StreamingResponse(
-        _mp3_byte_stream(resolved, ffmpeg),
-        media_type="audio/mpeg",
-        headers={
-            "Content-Disposition": f'inline; filename="{filename}"',
-            "Cache-Control": "no-store",
-        },
+def _trim_audio_cache(keep: Path | None = None) -> None:
+    """Remove stale/old ephemeral MP3s while preserving the active result."""
+    AUDIO_CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    now = time.time()
+    files = [path for path in AUDIO_CACHE_DIR.glob("audelle-*.mp3") if path.is_file()]
+    for path in files:
+        if path != keep and now - path.stat().st_mtime > AUDIO_CACHE_TTL_SECONDS:
+            path.unlink(missing_ok=True)
+    files = sorted(
+        (path for path in AUDIO_CACHE_DIR.glob("audelle-*.mp3") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
     )
+    total = sum(path.stat().st_size for path in files)
+    for path in files:
+        if total <= AUDIO_CACHE_MAX_BYTES:
+            break
+        if path == keep:
+            continue
+        size = path.stat().st_size
+        path.unlink(missing_ok=True)
+        total -= size
+
+
+async def prepare_audio_file(video_id: str) -> Path:
+    """Create one finite MP3 per track and deduplicate concurrent callers."""
+    target = AUDIO_CACHE_DIR / f"audelle-{video_id}.mp3"
+    if target.is_file() and target.stat().st_size > 0:
+        target.touch()
+        return target
+
+    lock = _CACHE_LOCKS.setdefault(video_id, asyncio.Lock())
+    async with lock:
+        if target.is_file() and target.stat().st_size > 0:
+            target.touch()
+            return target
+
+        try:
+            await asyncio.wait_for(_PREPARATION_SLOTS.acquire(), timeout=0.05)
+        except TimeoutError as exc:
+            raise AudioDownloadError(429, "too many audio tracks are being prepared; please retry shortly") from exc
+
+        temporary = AUDIO_CACHE_DIR / f".{video_id}-{uuid.uuid4().hex}.tmp"
+        try:
+            await asyncio.to_thread(_trim_audio_cache)
+            resolved = await _resolve_async(video_id)
+            ffmpeg = _require_ffmpeg()
+            try:
+                with temporary.open("xb") as output:
+                    async for chunk in _mp3_byte_stream(resolved, ffmpeg):
+                        output.write(chunk)
+                if temporary.stat().st_size == 0:
+                    raise AudioDownloadError(502, "the converted MP3 was empty")
+                os.replace(temporary, target)
+                await asyncio.to_thread(_trim_audio_cache, target)
+                return target
+            finally:
+                temporary.unlink(missing_ok=True)
+        finally:
+            _PREPARATION_SLOTS.release()
 
 
 async def _resolve_async(video_id: str) -> ResolvedAudio:
