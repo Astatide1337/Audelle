@@ -21,57 +21,36 @@ function sharePath() {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const calls = { load: 0, play: 0, pause: 0 }
-    Object.assign(window, { __audellePlayerCalls: calls })
-
-    class MockPlayer {
-      private state = 5
-      private readonly events
-
-      constructor(element: HTMLElement, options: { width: string; height: string; events: { onReady: () => void; onStateChange: (event: { data: number }) => void } }) {
-        this.events = options.events
-        const frame = document.createElement('iframe')
-        frame.title = 'Mock YouTube player'
-        frame.style.width = `${options.width}px`
-        frame.style.height = `${options.height}px`
-        element.appendChild(frame)
-        Object.assign(window, { __audelleResolvePlayerReady: () => options.events.onReady() })
-      }
-
-      loadVideoById() { calls.load += 1; this.state = 5; this.events.onStateChange({ data: 5 }) }
-      playVideo() { calls.play += 1; this.state = 1; this.events.onStateChange({ data: 1 }) }
-      pauseVideo() { calls.pause += 1; this.state = 2; this.events.onStateChange({ data: 2 }) }
-      getPlayerState() { return this.state }
-      getCurrentTime() { return 0 }
-      getDuration() { return 213 }
-      seekTo() {}
-      destroy() {}
+    let paused = true
+    Object.assign(window, { __audelleAudioCalls: calls })
+    Object.defineProperty(HTMLMediaElement.prototype, 'paused', { configurable: true, get: () => paused })
+    Object.defineProperty(HTMLMediaElement.prototype, 'duration', { configurable: true, get: () => 213 })
+    HTMLMediaElement.prototype.load = function () { calls.load += 1 }
+    HTMLMediaElement.prototype.play = function () {
+      calls.play += 1
+      paused = false
+      this.dispatchEvent(new Event('playing'))
+      return Promise.resolve()
     }
-
-    Object.assign(window, { YT: { Player: MockPlayer } })
+    HTMLMediaElement.prototype.pause = function () {
+      calls.pause += 1
+      paused = true
+      this.dispatchEvent(new Event('pause'))
+    }
   })
 })
 
-test('playback can start from a click and uses a supported player size', async ({ page }) => {
+test('native playback starts directly from the Play click', async ({ page }) => {
   await page.goto(sharePath())
   const play = page.getByRole('button', { name: 'Play', exact: true })
   await expect(play).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Previous track' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Next track' })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Restart track' })).toBeDisabled()
-
-  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(0)
-  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(0)
-
-  const frame = page.locator('iframe[title="Mock YouTube player"]')
-  await expect(frame).toHaveCSS('width', '200px')
-  await expect(frame).toHaveCSS('height', '200px')
+  expect(await page.evaluate(() => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play)).toBe(0)
 
   await play.click()
-  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(0)
-  await page.evaluate(() => (window as never as { __audelleResolvePlayerReady: () => void }).__audelleResolvePlayerReady())
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
-  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { load: number } }).__audellePlayerCalls.load)).toBe(1)
-  expect(await page.evaluate(() => (window as never as { __audellePlayerCalls: { play: number } }).__audellePlayerCalls.play)).toBe(1)
+  expect(await page.evaluate(() => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play)).toBe(1)
 })
 
 for (const viewport of [

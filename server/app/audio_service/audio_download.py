@@ -287,7 +287,7 @@ async def stream_audio(video_id: str) -> StreamingResponse:
         _mp3_byte_stream(resolved, ffmpeg),
         media_type="audio/mpeg",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f'inline; filename="{filename}"',
             "Cache-Control": "no-store",
         },
     )

@@ -141,7 +141,7 @@ def test_resolver_rejects_non_googlevideo_stream_urls(fake_yt_dlp, monkeypatch):
     assert excinfo.value.status_code == 502
 
 
-def test_streams_mp3_bytes_with_attachment_headers(monkeypatch):
+def test_streams_mp3_bytes_with_inline_headers(monkeypatch):
     payload = b"ID3-fake-mp3-bytes" * 100
 
     async def fake_mp3_stream(resolved, ffmpeg):
@@ -156,7 +156,7 @@ def test_streams_mp3_bytes_with_attachment_headers(monkeypatch):
     with client.stream("GET", "/api/audio/dQw4w9WgXcQ") as res:
         assert res.status_code == 200
         assert res.headers["content-type"] == "audio/mpeg"
-        assert 'attachment; filename="audelle-dQw4w9WgXcQ.mp3"' in res.headers["content-disposition"]
+        assert 'inline; filename="audelle-dQw4w9WgXcQ.mp3"' in res.headers["content-disposition"]
         body = b"".join(res.iter_bytes())
 
     assert body == payload

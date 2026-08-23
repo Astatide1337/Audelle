@@ -5,7 +5,7 @@ import type { Track } from '../../lib/types'
 import { formatClock, formatPlays } from '../../lib/format'
 import { DownloadCancelledError, downloadPlaylistZip, saveBlob, type DownloadResult } from '../../lib/download'
 import { buildPlaylistShareUrl, copyTextToClipboard, playlistTitleFromPrompt } from '../../lib/share'
-import { useYouTubeAudio } from '../../lib/useYouTubeAudio'
+import { useAudioPlayback } from '../../lib/useAudioPlayback'
 import { AudioVisualizer } from '../AudioVisualizer'
 import { TrackInfoDialog } from '../TrackInfoDialog'
 import { Button } from '../ui/Button'
@@ -160,7 +160,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   // The hook reports when a track ended; repeat policy lives here.
   const endedRef = useRef<() => void>(() => {})
   const {
-    containerRef: audioContainerRef,
     isReady,
     isPlaying,
     playbackTime,
@@ -169,7 +168,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
     togglePlay,
     seek,
     restart,
-  } = useYouTubeAudio(track?.id ?? null, () => endedRef.current())
+  } = useAudioPlayback(track?.id ?? null, () => endedRef.current())
 
   const handleEnded = useCallback(() => {
     if (repeatMode === 'one') {
@@ -384,15 +383,6 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
         </svg>
         New vibe
       </Button>
-
-      {/* YouTube documents 200×200 as the minimum supported IFrame player size.
-          Keep that real size inside Safari's viewport, but visually transparent;
-          WebKit may defer an iframe placed far outside the rendered viewport. */}
-      <div
-        ref={audioContainerRef}
-        aria-hidden="true"
-        className="pointer-events-none fixed left-0 top-0 h-[200px] w-[200px] overflow-hidden opacity-0"
-      />
 
       <div className="absolute inset-x-0 bottom-0 z-20 flex max-h-[92dvh] flex-col items-center gap-3 overflow-y-auto overscroll-contain px-6 pb-6 text-center sm:pb-8">
         <AnimatePresence mode="popLayout" initial={false}>
