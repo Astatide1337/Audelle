@@ -24,10 +24,12 @@ from .api.schemas import (
     TrackOut,
 )
 from .audio_service.audio_download import AudioDownloadError, audio_download_ready, prepare_audio_file
+from .body_limit import ApiBodyLimitMiddleware
 from .catalog_service.errors import CatalogUnavailableError
 from .mood_parser.embedder import warm_up
 from .mood_parser.parse_vibe import parse_vibe
 from .playlist_service.generate_playlist import generate_playlist
+from .rate_limit import ApiRateLimiter
 from .shared.types import Filters
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -62,6 +64,7 @@ ALLOWED_ORIGINS = _csv_env(
 TRUSTED_HOSTS = _csv_env("AUDELLE_TRUSTED_HOSTS", ["localhost", "127.0.0.1", "[::1]", "testserver"])
 FORCE_HTTPS = _bool_env("AUDELLE_FORCE_HTTPS")
 MAX_API_BODY_BYTES = 64 * 1024
+api_rate_limiter = ApiRateLimiter()
 
 if APP_ENV == "production":
     missing_production_config = [
@@ -117,8 +120,6 @@ app.add_middleware(
     allow_headers=["Content-Type"],
     expose_headers=["Retry-After", "X-Request-ID"],
 )
-
-
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     request_id = request.headers.get("x-request-id", "")
@@ -136,7 +137,18 @@ async def add_security_headers(request: Request, call_next):
         except ValueError:
             oversized_body = True
     try:
-        if oversized_body:
+        retry_after = api_rate_limiter.retry_after(request)
+        if retry_after is not None:
+            response = JSONResponse(
+                status_code=429,
+                content={"detail": "too many requests; please retry shortly", "requestId": request_id},
+                headers={
+                    "X-Request-ID": request_id,
+                    "Cache-Control": "no-store",
+                    "Retry-After": str(retry_after),
+                },
+            )
+        elif oversized_body:
             response = JSONResponse(
                 status_code=413,
                 content={"detail": "request body is too large", "requestId": request_id},
@@ -178,6 +190,12 @@ async def add_security_headers(request: Request, call_next):
     if APP_ENV == "production" and request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
+
+
+# Starlette inserts newly added middleware at the outside of the stack. Keep
+# the streaming body limiter outside BaseHTTPMiddleware so an over-limit body
+# is converted to a deterministic 413 before request parsing can normalize it.
+app.add_middleware(ApiBodyLimitMiddleware, max_bytes=MAX_API_BODY_BYTES)
 
 
 def _to_filters(f: FiltersIn) -> Filters:

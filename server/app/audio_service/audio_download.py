@@ -10,10 +10,12 @@ import asyncio
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,13 +30,22 @@ STREAM_CONNECT_TIMEOUT_SECONDS = 15.0
 STREAM_READ_TIMEOUT_SECONDS = 30.0
 # Safety cap for one track; typical bestaudio files are well under 20 MB.
 MAX_AUDIO_BYTES = 256 * 1024 * 1024
-MAX_MP3_BYTES = 128 * 1024 * 1024
+MAX_MP3_BYTES = 64 * 1024 * 1024
 MP3_BITRATE = "320k"
 AUDIO_CACHE_DIR = Path(os.getenv("AUDELLE_AUDIO_CACHE_DIR", "/tmp/audelle-audio"))
 AUDIO_CACHE_TTL_SECONDS = 6 * 60 * 60
 AUDIO_CACHE_MAX_BYTES = 96 * 1024 * 1024
-AUDIO_PREPARATION_CONCURRENCY = 4
-_CACHE_LOCKS: dict[str, asyncio.Lock] = {}
+AUDIO_PREPARATION_CONCURRENCY = 2
+
+
+@dataclass
+class _CacheLockEntry:
+    lock: asyncio.Lock
+    users: int = 0
+
+
+_CACHE_LOCKS: dict[str, _CacheLockEntry] = {}
+_CACHE_LOCKS_GUARD = asyncio.Lock()
 _PREPARATION_SLOTS = asyncio.Semaphore(AUDIO_PREPARATION_CONCURRENCY)
 
 
@@ -286,27 +297,51 @@ async def _mp3_byte_stream(resolved: ResolvedAudio, ffmpeg: str):
         await asyncio.gather(producer, stderr_reader, return_exceptions=True)
 
 
+def _existing_cache_files() -> list[tuple[Path, os.stat_result]]:
+    """Snapshot cache metadata while tolerating concurrent atomic eviction."""
+    files: list[tuple[Path, os.stat_result]] = []
+    for path in AUDIO_CACHE_DIR.glob("audelle-*.mp3"):
+        try:
+            metadata = path.stat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISREG(metadata.st_mode):
+            files.append((path, metadata))
+    return files
+
+
 def _trim_audio_cache(keep: Path | None = None) -> None:
     """Remove stale/old ephemeral MP3s while preserving the active result."""
     AUDIO_CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     now = time.time()
-    files = [path for path in AUDIO_CACHE_DIR.glob("audelle-*.mp3") if path.is_file()]
-    for path in files:
-        if path != keep and now - path.stat().st_mtime > AUDIO_CACHE_TTL_SECONDS:
+    for path, metadata in _existing_cache_files():
+        if path != keep and now - metadata.st_mtime > AUDIO_CACHE_TTL_SECONDS:
             path.unlink(missing_ok=True)
-    files = sorted(
-        (path for path in AUDIO_CACHE_DIR.glob("audelle-*.mp3") if path.is_file()),
-        key=lambda path: path.stat().st_mtime,
-    )
-    total = sum(path.stat().st_size for path in files)
-    for path in files:
+    files = sorted(_existing_cache_files(), key=lambda item: item[1].st_mtime)
+    total = sum(metadata.st_size for _, metadata in files)
+    for path, metadata in files:
         if total <= AUDIO_CACHE_MAX_BYTES:
             break
         if path == keep:
             continue
-        size = path.stat().st_size
         path.unlink(missing_ok=True)
-        total -= size
+        total -= metadata.st_size
+
+
+@asynccontextmanager
+async def _cache_lock(video_id: str):
+    """Deduplicate one ID in flight without retaining attacker-chosen IDs."""
+    async with _CACHE_LOCKS_GUARD:
+        entry = _CACHE_LOCKS.setdefault(video_id, _CacheLockEntry(lock=asyncio.Lock()))
+        entry.users += 1
+    try:
+        async with entry.lock:
+            yield
+    finally:
+        async with _CACHE_LOCKS_GUARD:
+            entry.users -= 1
+            if entry.users == 0 and _CACHE_LOCKS.get(video_id) is entry:
+                del _CACHE_LOCKS[video_id]
 
 
 async def prepare_audio_file(video_id: str) -> Path:
@@ -316,8 +351,7 @@ async def prepare_audio_file(video_id: str) -> Path:
         target.touch()
         return target
 
-    lock = _CACHE_LOCKS.setdefault(video_id, asyncio.Lock())
-    async with lock:
+    async with _cache_lock(video_id):
         if target.is_file() and target.stat().st_size > 0:
             target.touch()
             return target

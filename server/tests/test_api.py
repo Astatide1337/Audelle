@@ -1,13 +1,24 @@
+import asyncio
 from itertools import product
+import time
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.api.schemas import FiltersIn
 import app.main as main_module
-from app.main import MAX_API_BODY_BYTES, _to_filters, app
+from app.main import MAX_API_BODY_BYTES, _to_filters, api_rate_limiter, app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_api_rate_limits():
+    api_rate_limiter.clear()
+    yield
+    api_rate_limiter.clear()
 
 
 def test_health():
@@ -84,6 +95,62 @@ def test_rejects_unbounded_popularity_threshold():
 def test_rejects_oversized_api_body_before_parsing():
     res = client.post("/api/playlist", content=b"{" + b"x" * (MAX_API_BODY_BYTES + 1) + b"}")
     assert res.status_code == 413
+
+
+def test_rejects_chunked_oversized_api_body_while_receiving():
+    async def chunks():
+        yield b'{"text":"'
+        yield b"x" * (MAX_API_BODY_BYTES + 1)
+        yield b'"}'
+
+    async def exercise():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+            return await async_client.post(
+                "/api/playlist",
+                content=chunks(),
+                headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+            )
+
+    response = asyncio.run(exercise())
+
+    assert response.status_code == 413
+
+
+def test_playlist_rate_limit_rejects_before_generation(monkeypatch):
+    calls = 0
+
+    async def generated(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("generation should not start after the limit")
+
+    monkeypatch.setattr(main_module, "generate_playlist", generated)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/playlist",
+            "query_string": b"",
+            "headers": [(b"cf-connecting-ip", b"203.0.113.8")],
+            "client": ("10.42.0.10", 1234),
+            "server": ("audelle.astatide.com", 443),
+            "scheme": "https",
+        }
+    )
+    now = time.monotonic()
+    for _ in range(12):
+        assert api_rate_limiter.retry_after(request, now=now) is None
+
+    response = client.post(
+        "/api/playlist",
+        json={"text": "rate limited"},
+        headers={"CF-Connecting-IP": "203.0.113.8"},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"]
+    assert calls == 0
 
 
 def test_all_64_supported_filter_combinations_cross_the_api_boundary():

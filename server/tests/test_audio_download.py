@@ -297,6 +297,41 @@ def test_concurrent_same_track_requests_share_resolution(monkeypatch):
     assert len(paths) == 2
     assert paths[0] == paths[1]
     assert bodies == [b"shared-audio", b"shared-audio"]
+    assert audio_mod._CACHE_LOCKS == {}
+
+
+def test_cache_lock_registry_does_not_retain_completed_video_ids():
+    async def exercise():
+        for video_id in ("AaBbCcDdEeF", "FfEeDdCcBbA", "12345678901"):
+            async with audio_mod._cache_lock(video_id):
+                assert video_id in audio_mod._CACHE_LOCKS
+
+    asyncio.run(exercise())
+
+    assert audio_mod._CACHE_LOCKS == {}
+
+
+def test_cache_trim_tolerates_a_file_disappearing_during_metadata_scan(monkeypatch):
+    path = audio_mod.AUDIO_CACHE_DIR / "audelle-dQw4w9WgXcQ.mp3"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"cached")
+    original_stat = type(path).stat
+    calls = 0
+
+    def racing_stat(candidate, *args, **kwargs):
+        nonlocal calls
+        if candidate == path:
+            calls += 1
+            if calls == 1:
+                candidate.unlink(missing_ok=True)
+                raise FileNotFoundError(candidate)
+        return original_stat(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(type(path), "stat", racing_stat)
+
+    audio_mod._trim_audio_cache()
+
+    assert not path.exists()
 
 
 def test_audio_endpoint_supports_safari_byte_ranges(monkeypatch):
