@@ -27,6 +27,15 @@ def test_build_search_term_candidates_leads_with_fullest_variant():
     assert variants[-1] == "night drive"
 
 
+def test_build_search_term_candidates_preserves_explicit_search_text():
+    variants = build_search_term_candidates(
+        plan(search_text="Tom and Jerry classical music", genre_seeds=["classical"], keyword_seeds=["orchestral"]),
+        Filters(),
+    )
+
+    assert variants[0] == "Tom and Jerry classical music"
+
+
 def test_build_search_term_candidates_prefers_user_genre_filter():
     variants = build_search_term_candidates(
         plan(genre_seeds=["synthwave"], keyword_seeds=["night drive"]), Filters(genres=["jazz"])
@@ -77,13 +86,14 @@ async def test_album_lookup_does_not_cache_transient_failures(monkeypatch):
     assert calls == 2
 
 
-def test_merge_search_results_interleaves_and_deduplicates_variants():
+def test_merge_search_results_prioritizes_specific_query_and_deduplicates_variants():
     first = [{"videoId": "a"}, {"videoId": "shared"}, {"videoId": "c"}]
     second = [{"videoId": "shared"}, {"videoId": "b"}, {"videoId": "d"}]
 
     merged = merge_search_results([first, second], pool_limit=5)
 
-    assert [item["videoId"] for item in merged] == ["a", "shared", "b", "c", "d"]
+    assert [item["videoId"] for item in merged] == ["a", "shared", "c", "b", "d"]
+    assert [item["_audelle_search_rank"] for item in merged] == [1, 2, 3, 32, 33]
 
 
 def test_merge_search_results_respects_pool_limit():
@@ -130,6 +140,13 @@ async def test_search_candidates_queries_every_variant_and_merges_results(monkey
         re.sub(r"[^A-Za-z0-9_-]", "-", f"{variant}-id")[:32] for variant in variants
     }
     assert all(item.year == 2024 for item in results)
+
+
+def test_query_match_score_prefers_explicit_title_terms():
+    specific = _song_result("specific", "Tom and Jerry Main Theme")
+    generic = _song_result("generic", "Young and Beautiful")
+
+    assert search_module._query_match_score(specific, "Tom and Jerry classical music") > search_module._query_match_score(generic, "Tom and Jerry classical music")
 
 
 @pytest.mark.asyncio

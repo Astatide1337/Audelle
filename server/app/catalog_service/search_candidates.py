@@ -26,6 +26,10 @@ YEAR_CACHE_MAX_ENTRIES = 4096
 MAX_VIEW_COUNT = 10**15
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,32}$")
 THUMBNAIL_HOST_SUFFIX = ".googleusercontent.com"
+_SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_SEARCH_STOP_WORDS = {
+    "a", "an", "and", "by", "for", "from", "in", "me", "of", "on", "the", "to", "with",
+}
 
 _year_cache: dict[str, int] = {}
 _candidate_cache: dict[tuple[str, ...], tuple[float, list[TrackCandidate]]] = {}
@@ -45,6 +49,7 @@ def build_search_term_candidates(plan: QueryPlan, filters: Filters) -> list[str]
     top_keywords = plan.keyword_seeds[:2]
 
     variants = [
+        plan.search_text,
         " ".join(x for x in [*top_keywords, genre, filters.language] if x),
         genre,
         " ".join(top_keywords),
@@ -97,28 +102,51 @@ async def _search_once(term: str) -> list[dict]:
 
 
 def merge_search_results(result_sets: list[list[dict]], pool_limit: int = CANDIDATE_POOL_LIMIT) -> list[dict]:
-    """Interleave query variants into one de-duplicated exploration pool.
+    """Keep each provider query's order while building a de-duplicated pool.
 
-    The first variant is the most specific query, but letting it fill the pool
-    before considering broader variants makes repeated prompts converge on the
-    same top slice. Round-robin interleaving preserves relevance while giving
-    the seeded selector meaningful alternatives.
+    The first variant is the user's exact text and therefore the strongest
+    relevance signal. Broader mood variants are appended only after it, rather
+    than interleaved ahead of exact matches.
     """
     merged: list[dict] = []
     seen_ids: set[str] = set()
-    for position in range(SEARCH_LIMIT):
-        for results in result_sets:
-            if position >= len(results):
-                continue
-            result = results[position]
+    for variant_index, results in enumerate(result_sets):
+        for result_index, result in enumerate(results):
             video_id = result.get("videoId")
             if not video_id or video_id in seen_ids:
                 continue
             seen_ids.add(video_id)
-            merged.append(result)
+            # Keep metadata out of the provider object and use a one-based rank
+            # so an exact-query result remains distinguishable from an unset
+            # rank used by callers that build a QueryPlan manually.
+            merged.append({
+                **result,
+                "_audelle_search_rank": variant_index * SEARCH_LIMIT + result_index + 1,
+            })
             if len(merged) >= pool_limit:
                 return merged
     return merged
+
+
+def _search_tokens(text: str) -> list[str]:
+    return [token for token in _SEARCH_TOKEN_RE.findall(text.casefold()) if token not in _SEARCH_STOP_WORDS and len(token) > 1]
+
+
+def _query_match_score(result: dict, search_text: str) -> int:
+    """Score explicit words found in a result title/artist/album label."""
+    query_tokens = _search_tokens(search_text)
+    if not query_tokens:
+        return 0
+    artists = result.get("artists") or []
+    artist_names = [artist.get("name", "") for artist in artists if isinstance(artist, dict)]
+    album = result.get("album") if isinstance(result.get("album"), dict) else {}
+    haystack = " ".join([result.get("title", ""), *artist_names, album.get("name", "")]).casefold()
+    haystack_tokens = set(_SEARCH_TOKEN_RE.findall(haystack))
+    score = sum(token in haystack_tokens for token in query_tokens)
+    normalized_query = " ".join(query_tokens)
+    if len(query_tokens) > 1 and normalized_query in " ".join(_SEARCH_TOKEN_RE.findall(haystack)):
+        score += 2
+    return score
 
 
 def _cached_candidates(cache_key: tuple[str, ...]) -> list[TrackCandidate] | None:
@@ -263,6 +291,8 @@ async def search_candidates(plan: QueryPlan, filters: Filters) -> list[TrackCand
                 popularity=_parse_views(r.get("views")),
                 watch_url=f"https://music.youtube.com/watch?v={r['videoId']}",
                 album_art=_thumbnail_url(r),
+                search_rank=int(r.get("_audelle_search_rank") or 0) if plan.search_text else 0,
+                query_match=_query_match_score(r, plan.search_text) if plan.search_text else 0,
             )
         )
     _cache_candidates(cache_key, candidates)

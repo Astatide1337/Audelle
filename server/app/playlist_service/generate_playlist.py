@@ -2,7 +2,7 @@ import random
 import secrets
 from dataclasses import dataclass, field
 
-from ..catalog_service.search_candidates import search_candidates
+from ..catalog_service.search_candidates import SEARCH_LIMIT, search_candidates
 from ..mood_parser.parse_vibe import QueryPlan
 from ..shared.types import Filters, TrackCandidate
 
@@ -48,18 +48,48 @@ def select_seeded_tracks(tracks: list[TrackCandidate], limit: int, seed: int) ->
 
     A stable seed makes a result reproducible when supplied, while the default
     request path generates a fresh seed. Sorting the selected tracks by the
-    existing popularity signal keeps the player readable without collapsing the
-    selection back to the same deterministic top slice.
+    provider's relevance signal keeps explicit title/artist requests on target;
+    popularity remains the tie-breaker for callers without search metadata.
     """
-    ranked = sorted(
-        tracks,
-        key=lambda track: (-track.popularity, track.name.casefold(), track.id),
-    )
+    relevance_mode = any(track.search_rank > 0 for track in tracks)
+    if relevance_mode:
+        ranked = sorted(
+            tracks,
+            key=lambda track: (-track.query_match, track.search_rank, -track.popularity, track.name.casefold(), track.id),
+        )
+    else:
+        ranked = sorted(
+            tracks,
+            key=lambda track: (-track.popularity, track.name.casefold(), track.id),
+        )
     if len(ranked) <= limit:
         return ranked
 
     core_count = min(3, limit)
     core = ranked[:core_count]
+    if relevance_mode:
+        # Keep seeded exploration inside the strongest relevance band that can
+        # fill the requested playlist. Otherwise a random low-relevance result
+        # can displace an exact title/artist match simply because it is popular.
+        threshold = ranked[min(limit - 1, len(ranked) - 1)].query_match
+        preferred = [track for track in ranked[core_count:] if track.query_match >= threshold]
+        exact_preferred = [track for track in preferred if track.search_rank <= SEARCH_LIMIT]
+        broader_preferred = [track for track in preferred if track.search_rank > SEARCH_LIMIT]
+        # If the exact user query can fill the remaining slots, do not let a
+        # broader mood query displace those provider-ranked matches.
+        if len(exact_preferred) >= limit - core_count:
+            preferred = exact_preferred
+        else:
+            preferred = exact_preferred + broader_preferred
+        fallback = [track for track in ranked[core_count:] if track.query_match < threshold]
+        rng = random.Random(seed)
+        rng.shuffle(preferred)
+        rng.shuffle(fallback)
+        slots = limit - core_count
+        selected = core + preferred[:slots]
+        if len(selected) < limit:
+            selected.extend(fallback[: limit - len(selected)])
+        return selected
     exploration = ranked[core_count:]
     random.Random(seed).shuffle(exploration)
     selected = core + exploration[: limit - core_count]

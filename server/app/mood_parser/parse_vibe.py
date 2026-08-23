@@ -20,6 +20,10 @@ class MatchedAnchor:
 
 @dataclass
 class QueryPlan:
+    # Preserve the user's words for catalog search. Semantic anchors describe
+    # the mood, but they must not erase explicit artists, titles, characters, or
+    # other named entities in the request.
+    search_text: str = ''
     genre_seeds: list[str] = field(default_factory=list)
     keyword_seeds: list[str] = field(default_factory=list)
     # Anchor terms that matched, most similar first — useful for debugging/explainability.
@@ -61,4 +65,5 @@ def parse_vibe(text: str) -> QueryPlan:
     genre_seeds = _dedup_capped([g for a in top_anchors for g in a.genre_seeds], 5)
     keyword_seeds = _dedup_capped([k for a in top_anchors for k in a.keywords], 8)
 
-    return QueryPlan(genre_seeds=genre_seeds, keyword_seeds=keyword_seeds, matched_anchors=top)
+    search_text = ' '.join(text.split())
+    return QueryPlan(search_text=search_text, genre_seeds=genre_seeds, keyword_seeds=keyword_seeds, matched_anchors=top)
