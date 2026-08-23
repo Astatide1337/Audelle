@@ -404,6 +404,11 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
         </p>
 
         <AudioVisualizer isPlaying={isPlaying} playbackTime={playbackTime} trackId={track.id} />
+        {!isReady && !hasAudioError && (
+          <p className="max-w-sm text-xs text-ink-dim" role="status">
+            Preparing high-quality audio…
+          </p>
+        )}
         {hasAudioError && (
           <p className="max-w-sm text-xs text-ink-dim" role="status">
             Audio preview is unavailable, but you can still browse and download the playlist.
@@ -425,7 +430,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
                 <path d="M18 6.6v10.8a.5.5 0 0 1-.78.42l-7.44-5.4a.5.5 0 0 1 0-.84l7.44-5.4a.5.5 0 0 1 .78.42Z" fill="currentColor" stroke="none" />
               </svg>
             </Button>
-            <Button type="button" onClick={togglePlay} disabled={audioUnavailable} aria-label={isPlaying ? 'Pause' : 'Play'} size="icon" className="text-canvas">
+            <Button type="button" onClick={togglePlay} disabled={audioUnavailable || !isReady} aria-label={isPlaying ? 'Pause' : 'Play'} size="icon" className="text-canvas">
               {isPlaying ? (
                 <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <rect x="6.5" y="5" width="3.6" height="14" rx="1" />

@@ -175,6 +175,7 @@ async def add_security_headers(request: Request, call_next):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data: https://*.googleusercontent.com https://i.ytimg.com; "
+            "media-src 'self' blob:; "
             "connect-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com",
         )
     response.headers.setdefault("X-Request-ID", request_id)

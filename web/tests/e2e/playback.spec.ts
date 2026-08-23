@@ -23,6 +23,12 @@ test.beforeEach(async ({ page }) => {
     const calls = { load: 0, play: 0, pause: 0 }
     let paused = true
     Object.assign(window, { __audelleAudioCalls: calls })
+    let mediaSource = ''
+    Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+      configurable: true,
+      get: () => mediaSource,
+      set: (value: string) => { mediaSource = value },
+    })
     Object.defineProperty(HTMLMediaElement.prototype, 'paused', { configurable: true, get: () => paused })
     Object.defineProperty(HTMLMediaElement.prototype, 'duration', { configurable: true, get: () => 213 })
     HTMLMediaElement.prototype.load = function () { calls.load += 1 }
@@ -37,6 +43,9 @@ test.beforeEach(async ({ page }) => {
       paused = true
       this.dispatchEvent(new Event('pause'))
     }
+  })
+  await page.route('**/api/audio/*', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('test mp3') })
   })
 })
 
