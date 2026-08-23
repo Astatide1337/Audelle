@@ -13,7 +13,7 @@ test('live MP3 playback advances in the browser', async ({ page }) => {
   )
 
   await page.goto(`/${sharedPlaylist}`)
-  await page.getByRole('button', { name: 'Play' }).click()
+  await page.getByRole('button', { name: 'Play', exact: true }).click()
 
   const response = await audioResponse
   expect(response.status()).toBe(200)
