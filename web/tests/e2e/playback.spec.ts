@@ -11,6 +11,12 @@ const snapshot = {
     artists: ['Rick Astley'],
     year: 1987,
     albumArt: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
+  }, {
+    id: '9bZkp7q19f0',
+    name: 'Gangnam Style',
+    artists: ['PSY'],
+    year: 2012,
+    albumArt: 'https://i.ytimg.com/vi/9bZkp7q19f0/maxresdefault.jpg',
   }],
 }
 
@@ -47,7 +53,7 @@ test.beforeEach(async ({ page }) => {
       this.dispatchEvent(new Event('pause'))
     }
   })
-  await page.route('**/api/audio/*', async (route) => {
+  await page.route('**/api/audio/**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from('test mp3') })
   })
 })
@@ -64,6 +70,25 @@ test('native playback starts directly from the Play click', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
   expect(await page.evaluate(() => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play)).toBe(1)
   expect(await page.evaluate(() => (window as never as { __audelleAudioElement: HTMLMediaElement }).__audelleAudioElement.src)).toContain('/api/audio/dQw4w9WgXcQ')
+})
+
+test('Next preserves active playback without requiring two more taps', async ({ page }) => {
+  await page.goto(sharePath())
+  await page.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Next track' }).click()
+
+  await expect.poll(() => page.evaluate(
+    () => (window as never as { __audelleAudioElement: HTMLMediaElement }).__audelleAudioElement.src,
+  )).toContain('/api/audio/9bZkp7q19f0')
+  await expect.poll(() => page.evaluate(
+    () => (window as never as { __audelleAudioCalls: { play: number } }).__audelleAudioCalls.play,
+  )).toBe(2)
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  expect(await page.evaluate(
+    () => (window as never as { __audelleAudioElement: HTMLMediaElement }).__audelleAudioElement.src,
+  )).toContain('/api/audio/9bZkp7q19f0')
 })
 
 test('a media error leaves Play enabled for a user retry', async ({ page }) => {

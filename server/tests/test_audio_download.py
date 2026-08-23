@@ -320,3 +320,21 @@ def test_audio_endpoint_supports_safari_byte_ranges(monkeypatch):
     assert response.headers["content-range"] == "bytes 2-5/10"
     assert response.headers["content-length"] == "4"
     assert response.content == b"2345"
+
+
+def test_prepare_endpoint_warms_audio_without_sending_the_file(monkeypatch, tmp_path):
+    path = tmp_path / "prepared.mp3"
+    path.write_bytes(b"prepared audio")
+    calls = []
+
+    async def prepare(video_id):
+        calls.append(video_id)
+        return path
+
+    monkeypatch.setattr(main_mod, "prepare_audio_file", prepare)
+
+    response = client.post("/api/audio/dQw4w9WgXcQ/prepare")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert calls == ["dQw4w9WgXcQ"]

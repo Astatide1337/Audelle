@@ -2,6 +2,11 @@ import type { Filters, PlaylistResponse } from './types'
 
 export class CatalogUnavailableError extends Error {}
 
+export async function prepareAudio(videoId: string): Promise<void> {
+  const response = await fetch(`/api/audio/${encodeURIComponent(videoId)}/prepare`, { method: 'POST' })
+  if (!response.ok) throw new Error(`Audio preparation failed (${response.status})`)
+}
+
 export async function generatePlaylist(text: string, filters: Filters, limit = 20, seed?: number): Promise<PlaylistResponse> {
   const res = await fetch('/api/playlist', {
     method: 'POST',

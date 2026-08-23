@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from .api.schemas import (
@@ -257,6 +257,20 @@ async def download_audio(video_id: str):
         content_disposition_type="inline",
         headers={"Cache-Control": "private, max-age=21600"},
     )
+
+
+@app.post("/api/audio/{video_id}/prepare", status_code=204)
+async def prepare_audio(video_id: str):
+    """Prepare a finite MP3 before the browser needs to start playback."""
+    if VIDEO_ID_RE.fullmatch(video_id) is None:
+        raise HTTPException(status_code=422, detail="invalid video id")
+
+    try:
+        await prepare_audio_file(video_id)
+    except AudioDownloadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return Response(status_code=204)
 
 
 WEB_DIST = Path(os.getenv("AUDELLE_WEB_DIST", Path(__file__).parents[2] / "web" / "dist"))

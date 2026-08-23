@@ -6,6 +6,7 @@ import { formatClock, formatPlays } from '../../lib/format'
 import { DownloadCancelledError, downloadPlaylistZip, saveBlob, type DownloadResult } from '../../lib/download'
 import { buildPlaylistShareUrl, copyTextToClipboard, playlistTitleFromPrompt } from '../../lib/share'
 import { useAudioPlayback } from '../../lib/useAudioPlayback'
+import { prepareAudio } from '../../lib/api'
 import { AudioVisualizer } from '../AudioVisualizer'
 import { TrackInfoDialog } from '../TrackInfoDialog'
 import { Button } from '../ui/Button'
@@ -161,6 +162,7 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   const endedRef = useRef<() => void>(() => {})
   const {
     isReady,
+    isPrepared,
     isPlaying,
     playbackTime,
     duration,
@@ -188,8 +190,16 @@ export function Slideshow({ tracks, playlistTitle, playlistPrompt, playlistSeed,
   }, [handleEnded])
 
   useEffect(() => {
-    if (isReady || hasAudioError) onMusicReady?.()
-  }, [hasAudioError, isReady, onMusicReady])
+    if (isPrepared || hasAudioError) onMusicReady?.()
+  }, [hasAudioError, isPrepared, onMusicReady])
+
+  // Keep only the next queue item warm. This removes the transcode delay on
+  // Skip without filling the bounded pod cache with the whole playlist.
+  useEffect(() => {
+    if (count < 2) return
+    const nextTrack = tracks[(currentIndex + 1) % count]
+    void prepareAudio(nextTrack.id).catch(() => {})
+  }, [count, currentIndex, tracks])
 
   useEffect(() => () => downloadAbortRef.current?.abort(), [])
 
