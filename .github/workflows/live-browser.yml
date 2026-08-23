@@ -24,5 +24,5 @@ jobs:
       - name: Verify live WebKit playback
         working-directory: web
         env:
-          AUDELLE_LIVE_URL: https://audelle-preview.astatide.com
+          AUDELLE_LIVE_URL: https://audelle.astatide.com
         run: npx playwright test tests/e2e/live-playback.spec.ts --project=webkit
