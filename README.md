@@ -93,6 +93,3 @@ traffic is Cloudflare → the dedicated Sohim tunnel → the internal Kubernetes
 Service. Deployments and rollbacks are performed by changing the immutable
 image reference in GitOps; do not apply repository manifests manually or put
 personal browser cookies into production secrets.
-
-See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the current
-operational baseline and release checklist.
