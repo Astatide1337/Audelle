@@ -64,6 +64,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/astatide1337/audelle:${{ github.sha }}
+            ghcr.io/astatide1337/audelle:main
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
