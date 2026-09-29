@@ -47,6 +47,11 @@ jobs:
     if: github.event_name == 'push'
     needs: test
     runs-on: ubuntu-24.04
+    # Publish one push at a time, so an older build cannot finish last and
+    # leave the moving main tag on stale code.
+    concurrency:
+      group: publish-image
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
