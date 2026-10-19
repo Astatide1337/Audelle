@@ -33,6 +33,7 @@ ENV PATH=/app/server/.venv/bin:$PATH \
     FASTEMBED_CACHE_PATH=/opt/fastembed-cache \
     AUDELLE_WEB_DIST=/app/web
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ffmpeg \
     && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libmp3lame \
     && rm -rf /var/lib/apt/lists/* \
