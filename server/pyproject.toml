@@ -12,7 +12,7 @@ dependencies = [
     "uvicorn[standard]==0.52.4",
     "httpx==0.28.1",
     "python-dotenv==1.2.3",
-    "fastembed==0.8.0",
+    "fastembed==0.9.1",
     # numpy is imported directly by the mood parser and embedder
     "numpy==2.4.6",
     # unauthenticated YouTube Music search only; no OAuth use anywhere
