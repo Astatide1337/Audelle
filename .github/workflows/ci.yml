@@ -24,7 +24,7 @@ jobs:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
-          version: "0.8.13"
+          version: "0.13.4"
           enable-cache: true
       - name: Verify server
         working-directory: server
